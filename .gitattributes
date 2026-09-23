@@ -1,0 +1,3 @@
+# Batch files must keep CRLF in the repo itself (raw.githubusercontent serves the stored bytes)
+*.cmd -text
+*.bat -text
