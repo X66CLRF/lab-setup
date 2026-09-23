@@ -34,7 +34,8 @@ In every sub-list: numbers like `1,3`, or Enter = all.
 
 | Task | What it does |
 |---|---|
-| Cleanup | Empty every user's Downloads + data drives in `config.json` (asks `YES` per drive) |
+| Cleanup | Every user: Downloads emptied, Desktop files/folders deleted (shortcuts `.lnk`/`.url` kept), user Temp, Recycle Bin; data drives in `config.json` (asks `YES` per drive) |
+| BrowserClean | Chrome/Edge: delete extra profiles (Profile 1, 2...), keep Default; clear its logins, cookies, history, sessions, cache (bookmarks/extensions kept) |
 | RemoveApps | Silent-uninstall adware / 3rd-party antivirus (Defender takes over) |
 | Install | Install/update packages from `\\192.168.0.72\LabDeploy\manifest.json` (SHA256 checked; `.exe`/`.msi`, or `.zip` + `run`; English `notice`/`noticeFile` shown for interactive installers) |
 | Winget | Install/upgrade latest WinRAR, Foxit Reader via winget |
@@ -43,6 +44,7 @@ In every sub-list: numbers like `1,3`, or Enter = all.
 | Certs | Trusted Root import, thumbprint allowlist only |
 | WinRARTheme | WinRAR theme for all users |
 | Wallpaper | Pick any image in share `wallpaper\` (newest if not asked), locked (Personalize greyed out) |
+| BrowserSearch | Google as default search via machine policy (Chrome, Edge, Firefox) |
 | Tune | High performance power plan, lighter visual effects, clear temp |
 | SpssLicense | Write SPSS/Amos concurrent license server into `spssprod.inf` |
 | Check | Read-only status: VPN gateways, KMS, share, FortiClient/SPSS/Amos, SPSS license host |

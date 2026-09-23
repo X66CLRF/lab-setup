@@ -5,7 +5,7 @@
 #   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
-#   Tasks: Cleanup RemoveApps Install Winget Activate Fonts Certs WinRARTheme Wallpaper Tune SpssLicense Check Unlock
+#   Tasks: Cleanup BrowserClean RemoveApps Tune Install Winget Activate Fonts Certs WinRARTheme Wallpaper BrowserSearch SpssLicense Check Unlock
 # Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
 
 # Pin to a tag/commit, never 'main'
@@ -17,15 +17,15 @@ function Invoke-LabSetup {
     # Menu groups: installing software is separate from optimizing the PC
     $groups = [ordered]@{
         'Install software (choose programs)'           = @('Install', 'Winget')
-        'Optimize PC (Cleanup, RemoveApps, Tune)'      = @('Optimize')
+        'Optimize PC (Cleanup, BrowserClean, RemoveApps, Tune)' = @('Optimize')
         'Activate Windows / Office (campus KMS)'       = @('Activate')
-        'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, SPSS license)' = @('Settings')
+        'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search, SPSS license)' = @('Settings')
         'Check status (VPN, KMS, share, SPSS)'         = @('Check')
         'Unlock wallpaper'                             = @('Unlock')
     }
     $subMenus = @{
-        'Optimize' = @('Cleanup', 'RemoveApps', 'Tune')
-        'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'Wallpaper', 'SpssLicense')
+        'Optimize' = @('Cleanup', 'BrowserClean', 'RemoveApps', 'Tune')
+        'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'Wallpaper', 'BrowserSearch', 'SpssLicense')
     }
     function Read-Pick($items, $title) {
         # returns selected items; Enter/0 = all
@@ -154,6 +154,100 @@ function Invoke-LabSetup {
             }
             $driveExcl = $excl + ($sysSkip | ForEach-Object { "$drive\$_" })
             Clear-Tree "$drive\" $driveExcl
+        }
+    }
+
+    # ============ Desktop + per-user leftovers (part of Cleanup) ============
+    if ($tasks -contains 'Cleanup') {
+        $keepExt = @($cfg.cleanup.desktopKeep | ForEach-Object { $_.ToLower() })   # e.g. .lnk .url = shortcuts stay
+        foreach ($u in Get-ChildItem "$env:SystemDrive\Users" -Directory | Where-Object {
+                $_.Name -notin @('Public', 'Default', 'Default User', 'All Users') -and $cfg.excludeProfiles -notcontains $_.Name }) {
+            foreach ($desk in @("$($u.FullName)\Desktop") + @(Get-ChildItem $u.FullName -Directory -Filter 'OneDrive*' -ErrorAction SilentlyContinue | ForEach-Object { "$($_.FullName)\Desktop" })) {
+                if (-not (Test-Path $desk)) { continue }
+                Log "Desktop: $desk (keep $($keepExt -join ' '))"
+                foreach ($it in Get-ChildItem -LiteralPath $desk -Force -ErrorAction SilentlyContinue) {
+                    if ($it.Name -eq 'desktop.ini' -or (-not $it.PSIsContainer -and $keepExt -contains $it.Extension.ToLower())) { continue }
+                    Remove-Path $it.FullName
+                }
+            }
+            $ut = "$($u.FullName)\AppData\Local\Temp"
+            if (Test-Path $ut) { Get-ChildItem $ut -Force -ErrorAction SilentlyContinue | ForEach-Object { if (-not $dryRun) { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue } } }
+        }
+        if (-not $dryRun) { Clear-RecycleBin -Force -ErrorAction SilentlyContinue; Log 'Recycle Bin emptied' }
+    }
+
+    # ============ BrowserClean: keep only the main profile, clear its private data ============
+    if ($tasks -contains 'BrowserClean') {
+        Log '== BrowserClean ==' 'Cyan'
+        foreach ($pn in 'chrome', 'msedge') {
+            if (Get-Process $pn -ErrorAction SilentlyContinue) {
+                Log "  closing $pn" 'Yellow'
+                if (-not $dryRun) { Stop-Process -Name $pn -Force -ErrorAction SilentlyContinue; Start-Sleep 2 }
+            }
+        }
+        $private = 'Cookies', 'Network\Cookies', 'Login Data', 'Login Data For Account', 'History', 'Web Data',
+                   'Top Sites', 'Visited Links', 'Sessions', 'Session Storage', 'Cache', 'Code Cache', 'GPUCache'
+        foreach ($u in Get-ChildItem "$env:SystemDrive\Users" -Directory | Where-Object {
+                $_.Name -notin @('Public', 'Default', 'Default User', 'All Users') -and $cfg.excludeProfiles -notcontains $_.Name }) {
+            foreach ($b in @(@{ n = 'Chrome'; p = "$($u.FullName)\AppData\Local\Google\Chrome\User Data" },
+                             @{ n = 'Edge';   p = "$($u.FullName)\AppData\Local\Microsoft\Edge\User Data" })) {
+                if (-not (Test-Path $b.p)) { continue }
+                # 1. extra profiles (Profile 1, Profile 2, ...) -> delete; Default stays
+                foreach ($x in Get-ChildItem $b.p -Directory | Where-Object Name -match '^Profile \d+$') {
+                    Log "  $($u.Name) $($b.n): remove $($x.Name)"
+                    Remove-Path $x.FullName
+                }
+                # 2. drop them from Local State so the profile picker does not show ghosts
+                $ls = Join-Path $b.p 'Local State'
+                if ((Test-Path $ls) -and -not $dryRun) {
+                    try {
+                        $j = Get-Content $ls -Raw -Encoding UTF8 | ConvertFrom-Json
+                        if ($j.profile.info_cache) {
+                            foreach ($k in @($j.profile.info_cache.PSObject.Properties.Name | Where-Object { $_ -ne 'Default' })) { $j.profile.info_cache.PSObject.Properties.Remove($k) }
+                            $j.profile.last_used = 'Default'
+                            if ($j.profile.PSObject.Properties['last_active_profiles']) { $j.profile.last_active_profiles = @('Default') }
+                            Copy-Item $ls "$ls.bak" -Force
+                            [IO.File]::WriteAllText($ls, ($j | ConvertTo-Json -Depth 100 -Compress), (New-Object Text.UTF8Encoding $false))
+                        }
+                    } catch { Log "  $($b.n) Local State not updated: $($_.Exception.Message)" 'Yellow' }
+                }
+                # 3. main profile: remove logins, cookies, history, sessions, cache (bookmarks/extensions kept)
+                $def = Join-Path $b.p 'Default'
+                if (Test-Path $def) {
+                    Log "  $($u.Name) $($b.n): clear private data in Default"
+                    foreach ($f in $private) { $t = Join-Path $def $f; if (Test-Path $t) { Remove-Path $t } }
+                }
+            }
+        }
+    }
+
+    # ============ BrowserSearch: default search = Google (machine policy) ============
+    if ($tasks -contains 'BrowserSearch') {
+        Log '== BrowserSearch ==' 'Cyan'
+        $g = @{
+            DefaultSearchProviderEnabled    = 1
+            DefaultSearchProviderName       = 'Google'
+            DefaultSearchProviderKeyword    = 'google.com'
+            DefaultSearchProviderSearchURL  = 'https://www.google.com/search?q={searchTerms}'
+            DefaultSearchProviderSuggestURL = 'https://www.google.com/complete/search?output=chrome&q={searchTerms}'
+        }
+        foreach ($pol in 'HKLM:\SOFTWARE\Policies\Google\Chrome', 'HKLM:\SOFTWARE\Policies\Microsoft\Edge') {
+            foreach ($k in $g.Keys) { Set-Reg $pol $k $g[$k] $(if ($g[$k] -is [int]) { 'DWord' } else { 'String' }) }
+            Log "  policy set: $pol"
+        }
+        # Firefox honours enterprise policies on any PC
+        $ffDir = "$env:ProgramFiles\Mozilla Firefox\distribution"
+        if (Test-Path "$env:ProgramFiles\Mozilla Firefox\firefox.exe") {
+            $pj = Join-Path $ffDir 'policies.json'
+            if ((Test-Path $pj) -and -not (Select-String $pj -Pattern '"Default"\s*:\s*"Google"' -Quiet)) { Log "  Firefox: $pj exists - add SearchEngines.Default=Google manually" 'Yellow' }
+            elseif (-not (Test-Path $pj) -and -not $dryRun) {
+                New-Item -ItemType Directory -Force $ffDir | Out-Null
+                [IO.File]::WriteAllText($pj, '{"policies":{"SearchEngines":{"Default":"Google"}}}', (New-Object Text.UTF8Encoding $false))
+                Log '  Firefox policy set'
+            }
+        }
+        if (-not (Get-CimInstance Win32_ComputerSystem).PartOfDomain) {
+            Log '  NOTE: PC is not domain-joined. Chrome/Edge may ignore search policies on unmanaged Windows - check chrome://policy and edge://policy' 'Yellow'
         }
     }
 

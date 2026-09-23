@@ -6,6 +6,7 @@
   "cleanup": {
     "enabled": true,
     "drives": ["D:"],
+    "desktopKeep": [".lnk", ".url"],
     "exclude": ["D:\\Keep", "D:\\CourseData"]
   },
 
