@@ -1,10 +1,12 @@
 # lab.ps1 - Lab PC setup (Windows 11 Pro)
-# Run as admin:
+# Run in PowerShell as Administrator (short bootstrap, verifies this file's SHA256):
+#   irm x66clrf.github.io/lab-setup/go.txt | iex
+# Direct:
 #   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/lab.ps1 | iex
-# Dry run (list actions, change nothing):
-#   $env:LAB_DRYRUN='1'; irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/lab.ps1 | iex
-# Select tasks (comma list): Cleanup,RemoveApps,Install,Wallpaper,Tune,Unlock
-#   $env:LAB_TASKS='Install,Wallpaper'; irm ... | iex
+# Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
+# Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
+#   Tasks: Cleanup RemoveApps Install Winget Activate Fonts Certs WinRARTheme Wallpaper Tune SpssLicense Check Unlock
+# Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
 
 # Pin to a tag/commit, never 'main'
 $LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/config.json'
@@ -243,7 +245,8 @@ function Invoke-LabSetup {
                 $workDir = $tmpDir
                 if ($ext -eq '.zip') {
                     $workDir = Join-Path $tmpDir 'x'
-                    try { Expand-Archive -LiteralPath $dst -DestinationPath $workDir -Force -ErrorAction Stop }
+                    Log "$tag unzip ($([math]::Round((Get-Item $dst).Length / 1GB, 1)) GB)..."
+                    try { Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory($dst, $workDir) }
                     catch { Log "$tag FAIL unzip: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 4; continue }
                     Remove-Item $dst -Force
                     $dst = Join-Path $workDir $pkg.run
@@ -288,6 +291,26 @@ function Invoke-LabSetup {
             } finally { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue }
         }
         if ($needReboot) { Log 'REBOOT REQUIRED' 'Yellow' }
+    }
+
+    # ============ Winget apps (latest from vendor via winget) ============
+    if ($tasks -contains 'Winget') {
+        Log '== Winget ==' 'Cyan'
+        $wg = Get-Command winget.exe -ErrorAction SilentlyContinue
+        if (-not $wg) { Log 'FAIL: winget not found (install "App Installer" from Microsoft Store)' 'Red'; $global:LabExitCode = 4 }
+        else {
+            foreach ($id in $cfg.winget) {
+                $listed = winget list --id $id -e --accept-source-agreements 2>$null | Select-String ([regex]::Escape($id))
+                $verb = if ($listed) { 'upgrade' } else { 'install' }
+                Log "[$id] $verb"
+                if ($dryRun) { continue }
+                winget $verb --id $id -e --silent --scope machine --accept-package-agreements --accept-source-agreements --disable-interactivity | Out-Null
+                $code = $LASTEXITCODE
+                # 0 ok; 0x8A15002B = no applicable upgrade (already latest)
+                if ($code -eq 0 -or $code -eq -1978335189) { Log "[$id] OK" 'Green' }
+                else { Log "[$id] FAIL exit $('0x{0:X8}' -f $code)" 'Red'; $global:LabExitCode = 4 }
+            }
+        }
     }
 
     # ============ Wallpaper (lock) ============
@@ -359,26 +382,6 @@ function Invoke-LabSetup {
                 }
             } finally { Close-UserHives $hives }
             Log "WinRAR theme '$themeName' set (applies next WinRAR start)" 'Green'
-        }
-    }
-
-    # ============ Winget apps (latest from vendor via winget) ============
-    if ($tasks -contains 'Winget') {
-        Log '== Winget ==' 'Cyan'
-        $wg = Get-Command winget.exe -ErrorAction SilentlyContinue
-        if (-not $wg) { Log 'FAIL: winget not found (install "App Installer" from Microsoft Store)' 'Red'; $global:LabExitCode = 4 }
-        else {
-            foreach ($id in $cfg.winget) {
-                $listed = winget list --id $id -e --accept-source-agreements 2>$null | Select-String ([regex]::Escape($id))
-                $verb = if ($listed) { 'upgrade' } else { 'install' }
-                Log "[$id] $verb"
-                if ($dryRun) { continue }
-                winget $verb --id $id -e --silent --scope machine --accept-package-agreements --accept-source-agreements --disable-interactivity | Out-Null
-                $code = $LASTEXITCODE
-                # 0 ok; 0x8A15002B = no applicable upgrade (already latest)
-                if ($code -eq 0 -or $code -eq -1978335189) { Log "[$id] OK" 'Green' }
-                else { Log "[$id] FAIL exit $('0x{0:X8}' -f $code)" 'Red'; $global:LabExitCode = 4 }
-            }
         }
     }
 
@@ -556,7 +559,7 @@ function Invoke-LabSetup {
     Log "Done (exit $global:LabExitCode). Log: $logFile" $(if ($global:LabExitCode) { 'Red' } else { 'Green' })
 }
 
-# Exit codes: 0 ok, 1 not admin/config/host guard, 2 share connect, 3 manifest, 4 package failed
+# Exit codes: 0 ok, 1 not admin/config/host guard, 2 share connect, 3 manifest, 4 package failed, 5 activation failed
 $global:LabExitCode = 0
 Invoke-LabSetup
 $global:LASTEXITCODE = $global:LabExitCode

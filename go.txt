@@ -1,0 +1,9 @@
+# Lab setup bootstrap. Run in PowerShell as Administrator:
+#   irm x66clrf.github.io/lab-setup/go.txt | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$u = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/lab.ps1'
+$h = '879943122A5225AB457DFC2FE85DD499644E5E9A1CB24DAEC3F383A7C52E9CE8'
+$b = (Invoke-WebRequest $u -UseBasicParsing).RawContentStream.ToArray()
+$got = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($b)) -replace '-'
+if ($got -ne $h) { Write-Host "STOP: lab.ps1 hash mismatch ($got). Not running." -ForegroundColor Red; return }
+Invoke-Expression ([Text.Encoding]::UTF8.GetString($b).TrimStart([char]0xFEFF))
