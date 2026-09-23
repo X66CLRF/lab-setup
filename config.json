@@ -1,0 +1,104 @@
+{
+  "allowedHostPattern": "^LAB-",
+  "deployShare": "\\\\192.168.0.72\\LabDeploy",
+  "deployUser": "labdeploy",  "excludeProfiles": ["labadmin", "Administrator"],
+
+  "cleanup": {
+    "enabled": true,
+    "drives": ["D:"],
+    "exclude": ["D:\\Keep", "D:\\CourseData"]
+  },
+
+  "removeApps": [
+    "McAfee*",
+    "Avast*",
+    "AVG*",
+    "Norton*",
+    "Kaspersky*",
+    "*WebCompanion*",
+    "*Driver Booster*",
+    "*PC Cleaner*"
+  ],
+  "removeAppx": [
+    "*CandyCrush*",
+    "*McAfee*",
+    "Microsoft.BingNews",
+    "Microsoft.GamingApp"
+  ],
+
+  "kms": {
+    "host": "nsru-kms-a.nsru.ac.th",
+    "_note": "Public KMS client keys (GVLK) from Microsoft docs, keyed by EditionID",
+    "windowsGvlk": {
+      "Professional": "W269N-WFGWX-YVC9B-4J6C9-T83GX",
+      "ProfessionalEducation": "6TP4R-GNPTD-KYYHQ-7B7DP-J447Y",
+      "Education": "NW6C2-QMPVW-D7KKK-3GKT6-VCFB2",
+      "Enterprise": "NPPR9-FWDCX-D2C8J-H872K-2YT43"
+    },
+    "_noteAll": "Public GVLKs collected from NSRU KMS scripts (same for x86/x64). *_verify = from Microsoft docs, not from NSRU scripts.",
+    "windowsGvlkByVersion": {
+      "Windows7Pro": "FJ82H-XT6CR-J8D7P-XQJJ2-GPDD4",
+      "Windows8.1Ent": "MHF9N-XY6XB-WVXMC-BTDCT-MKKG7",
+      "Windows10Pro": "W269N-WFGWX-YVC9B-4J6C9-T83GX",
+      "Windows10Edu": "NW6C2-QMPVW-D7KKK-3GKT6-VCFB2",
+      "Windows11Pro": "W269N-WFGWX-YVC9B-4J6C9-T83GX",
+      "Windows11Edu": "NW6C2-QMPVW-D7KKK-3GKT6-VCFB2",
+      "WindowsServer2008EntR2": "489J6-VHDMP-X63PK-3K798-CPX3Y",
+      "WindowsServer2012DataR2": "W3GGN-FT8W3-Y4M27-J84CP-Q3VJ9",
+      "WindowsServer2016Data": "CB7KF-BWN84-R7R2Y-793K2-8XDDG",
+      "WindowsServer2019Data": "WMDGN-G9PQG-XVVXX-R3X43-63DFG"
+    },
+    "officeGvlk": {
+      "Office2013Pro": "YC7DK-G2NP3-2QQC3-J6H88-GVGXT",
+      "Office2016Pro": "XQNVK-8JYDB-WJ9W3-YJ8YR-WFG99",
+      "Office2019Pro": "NMMKJ-6RK4F-KMJVX-8D9MJ-6MWKP",
+      "Office2021Pro_verify": "FXYTK-NJJ8C-GB6DW-3DYQT-6F7TH",
+      "Office2024Pro": "XJ2XN-FW8RK-P4HMP-DKDBV-GCVGB",
+      "Project2013Pro": "FN8TT-7WMH6-2D4X9-M337T-2342K",
+      "Project2016Pro": "YG9NW-3K39V-2T3HJ-93F3Q-G83KT",
+      "Project2019Pro": "B4NPR-3FKK7-T2MBV-FRQ4W-PKD2B",
+      "Project2021Pro_verify": "FTNWT-C6WBT-8HMGF-K9PRX-QV9H8",
+      "Project2024Pro_verify": "FQQ23-N4YCY-73HQ3-FM9WC-76HF4",
+      "Visio2013Pro": "C2FG9-N6J68-H8BTJ-BW3QX-RM3B3",
+      "Visio2016Pro": "PD3PC-RHNGV-FXJ29-8JK7D-RJRJK",
+      "Visio2019Pro": "9BGNQ-K37YR-RQHF2-38RQ3-7VCBB",
+      "Visio2021Pro_verify": "KNH8D-FGHT4-T8RK3-CTDYJ-K2HT4",
+      "Visio2024Pro_verify": "B7TN8-FJ8V3-7QYCP-HQPMV-YY89G"
+    }
+  },
+
+  "winget": [
+    "RARLab.WinRAR",
+    "Foxit.FoxitReader"
+  ],
+
+  "certs": {
+    "folder": "certs",
+    "allowThumbprints": [
+      "90A1B4ED726D1BD924AFF496792AE67C8091B524"
+    ]
+  },
+
+  "spss": {
+    "licenseServer": "192.168.3.10"
+  },
+
+  "vpn": [
+    { "name": "staff (remote)", "gateway": "sslvpn.nsru.ac.th", "port": 10443 },
+    { "name": "spss",           "gateway": "gwspss.nsru.ac.th", "port": 10443 }
+  ],
+
+  "fonts": {
+    "folder": "fonts"
+  },
+
+  "winrarTheme": {
+    "folder": "winrar\\theme",
+    "name": "Windows7_v2_48x48"
+  },
+
+  "wallpaper": {
+    "file": "wallpaper\\lab.jpg",
+    "style": 4
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "_note": "Put this file at \\\\lab-server\\deploy\\manifest.json (NOT in GitHub). sha256 = (Get-FileHash <file>).Hash",
+  "packages": [
+    {
+      "name": "IBM SPSS Statistics",
+      "displayNameMatch": "IBM SPSS Statistics*",
+      "version": "30.0.0.0",
+      "file": "spss\\IBM_SPSS_Statistics_30.msi",
+      "sha256": "PUT_HASH_HERE",
+      "args": "/qn /norestart LICENSETYPE=\"Network\" LSHOST=\"license-server.nsru.ac.th\"",
+      "postInstall": ""
+    },
+    {
+      "name": "VPN Client",
+      "displayNameMatch": "FortiClient*",
+      "version": "7.4.0.0",
+      "file": "vpn\\FortiClientVPN.msi",
+      "sha256": "PUT_HASH_HERE",
+      "args": "/qn /norestart",
+      "postInstall": "vpn\\import-profile.cmd"
+    },
+    {
+      "name": "Office LTSC 2024",
+      "displayNameMatch": "Microsoft Office LTSC Professional Plus 2024*",
+      "version": "16.0.0.0",
+      "file": "office\\Office2024.zip",
+      "run": "setup.exe",
+      "sha256": "PUT_HASH_OF_ZIP_HERE",
+      "args": "/configure config.xml",
+      "postInstall": ""
+    }
+  ]
+}
