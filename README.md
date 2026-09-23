@@ -2,12 +2,22 @@
 
 Lab PC setup for Windows 11 Pro (NSRU lab). One command, menu driven.
 
-## Run (main: from the share, campus network)
+## Run (main)
+
+PowerShell **as Administrator** on a lab PC (campus network):
+
+```powershell
+irm x66clrf.github.io/lab-setup/lab | iex
+```
+
+First time on a PC it asks once for the `labdeploy` share password, then shows the menu. `lab/index.html` only runs `lab.ps1` + `config.json` from `\\192.168.0.72\LabDeploy\lab\`, so edit them on the share - no push needed.
+
+## Run (double-click)
 
 On a lab PC open `\\192.168.0.72\LabDeploy\lab\` and double-click **run.cmd** (asks for admin, then shows the menu).
 Config is read from `config.json` next to `lab.ps1` on the share, so edits there apply immediately.
 
-## Run (alternative: from GitHub)
+## Run (alternative: pinned GitHub copy, SHA256 checked)
 
 PowerShell **as Administrator**:
 

@@ -1,0 +1,15 @@
+# NSRU lab setup - run in PowerShell as Administrator:
+#   irm x66clrf.github.io/lab-setup/lab | iex
+# Runs lab.ps1 + config.json from the campus file share (edit them there; no change needed here).
+$h = '192.168.0.72'; $p = "\\$h\LabDeploy\lab"
+if (-not (Test-Path "$p\lab.ps1")) {
+    if (-not (Test-NetConnection $h -Port 445 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
+        Write-Host "Cannot reach $h (port 445). Use the campus/lab network." -ForegroundColor Red; return
+    }
+    # first time on this PC: store the read-only share account once (password is typed, not shown)
+    Write-Host "First time on this PC - type the password for $h\labdeploy (nothing shows while typing):" -ForegroundColor Yellow
+    cmdkey /add:$h /user:$h\labdeploy /pass
+    if (-not (Test-Path "$p\lab.ps1")) { Write-Host "Still cannot open $p (wrong password?). Run the same command again to re-enter it." -ForegroundColor Red; return }
+}
+$env:LAB_CONFIG = "$p\config.json"
+Invoke-Expression (Get-Content "$p\lab.ps1" -Raw -Encoding UTF8)
