@@ -14,21 +14,43 @@ $LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/config
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'
     $dryRun = $env:LAB_DRYRUN -eq '1'
-    $allTasks = 'Cleanup','RemoveApps','Install','Winget','Activate','Fonts','Certs','WinRARTheme','Wallpaper','Tune'
-    $menu     = $allTasks + 'SpssLicense', 'Check', 'Unlock'
+    # Menu groups: installing software is separate from optimizing the PC
+    $groups = [ordered]@{
+        'Install software (choose programs)'           = @('Install', 'Winget')
+        'Optimize PC (Cleanup, RemoveApps, Tune)'      = @('Optimize')
+        'Activate Windows / Office (campus KMS)'       = @('Activate')
+        'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, SPSS license)' = @('Settings')
+        'Check status (VPN, KMS, share, SPSS)'         = @('Check')
+        'Unlock wallpaper'                             = @('Unlock')
+    }
+    $subMenus = @{
+        'Optimize' = @('Cleanup', 'RemoveApps', 'Tune')
+        'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'Wallpaper', 'SpssLicense')
+    }
+    function Read-Pick($items, $title) {
+        # returns selected items; Enter/0 = all
+        Write-Host "`n--- $title ---" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $items.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $items[$i]) }
+        $s = Read-Host 'Choose (e.g. 1,3 / Enter = all)'
+        if ($s -notmatch '\d') { return $items }
+        $s -split '[,\s]+' | Where-Object { $_ -match '^\d+$' -and [int]$_ -ge 1 -and [int]$_ -le $items.Count } | ForEach-Object { $items[[int]$_ - 1] }
+    }
     $interactive = -not $env:LAB_TASKS
     if (-not $interactive) { $tasks = $env:LAB_TASKS -split ',' | ForEach-Object { $_.Trim() } }
     else {
         Write-Host "`n=== Lab Setup ===" -ForegroundColor Cyan
-        Write-Host "  [0] ALL ($($allTasks -join ', '))"
-        for ($i = 0; $i -lt $menu.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $menu[$i]) }
+        $gNames = @($groups.Keys)
+        for ($i = 0; $i -lt $gNames.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $gNames[$i]) }
         Write-Host '  [Q] Quit'
-        $pick = Read-Host 'Choose (e.g. 4 or 3,4)'
-        if ($pick -match '^[qQ]') { return }
-        $tasks = if ($pick -match '^\s*0?\s*$') { $allTasks }
-                 else { $pick -split '[,\s]+' | Where-Object { $_ -match '^\d+$' -and [int]$_ -ge 1 -and [int]$_ -le $menu.Count } | ForEach-Object { $menu[[int]$_ - 1] } }
+        $pick = Read-Host 'Choose'
+        if ($pick -notmatch '^\s*\d+\s*$' -or [int]$pick -lt 1 -or [int]$pick -gt $gNames.Count) { return }
+        $tasks = @()
+        foreach ($t in $groups[$gNames[[int]$pick - 1]]) {
+            if ($subMenus.ContainsKey($t)) { $tasks += @(Read-Pick $subMenus[$t] $gNames[[int]$pick - 1]) } else { $tasks += $t }
+        }
         if (-not $tasks) { Write-Host 'Nothing selected.'; return }
     }
+    $pickPackages = $interactive -and ($tasks -contains 'Install')   # per-program selection happens after the share connects
 
     # --- admin check ---
     $id = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -200,13 +222,34 @@ function Invoke-LabSetup {
         if (-not $shareOk) { $global:LabExitCode = 2 }
     }
 
+    # ============ Install: read manifest + choose programs ============
+    $pkgs = @(); $wingetSel = @($cfg.winget)
+    if ($tasks -contains 'Install' -and $shareOk) {
+        try { $manifest = Get-Content "$share\manifest.json" -Raw -Encoding UTF8 | ConvertFrom-Json; $pkgs = @($manifest.packages | Where-Object { $_ }) }
+        catch { Log "FAIL read manifest.json: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 3 }
+    }
+    if ($pickPackages) {
+        # one list: share packages (with installed version) + winget apps
+        $items = @()
+        foreach ($p in $pkgs) {
+            $iv = (Get-Installed $p.displayNameMatch | Select-Object -First 1).DisplayVersion
+            $items += [pscustomobject]@{ Kind = 'pkg'; Ref = $p; Label = ("{0,-48} {1}" -f $p.name, $(if ($iv) { "installed $iv" } else { 'not installed' })) }
+        }
+        foreach ($id in $cfg.winget) {
+            $items += [pscustomobject]@{ Kind = 'winget'; Ref = $id; Label = ("{0,-48} {1}" -f $id, 'winget (latest)') }
+        }
+        if (-not $shareOk) { Write-Host '  (share not connected - only winget apps listed)' -ForegroundColor Yellow }
+        $chosen = @(Read-Pick @($items | ForEach-Object Label) 'Install software')
+        $sel = @($items | Where-Object { $chosen -contains $_.Label })
+        $pkgs      = @($sel | Where-Object Kind -eq 'pkg'    | ForEach-Object Ref)
+        $wingetSel = @($sel | Where-Object Kind -eq 'winget' | ForEach-Object Ref)
+        Log "Selected: $((@($pkgs | ForEach-Object name) + $wingetSel) -join ', ')"
+    }
+
     # ============ Install / Update ============
     if ($tasks -contains 'Install' -and $shareOk) {
         Log '== Install ==' 'Cyan'
-        try { $manifest = Get-Content "$share\manifest.json" -Raw -Encoding UTF8 | ConvertFrom-Json }
-        catch { Log "FAIL read manifest.json: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 3; $manifest = $null }
-        $pkgs = @($manifest.packages | Where-Object { $_ })
-        if ($manifest -and $pkgs.Count -eq 0) { Log 'manifest: no packages' }
+        if ($pkgs.Count -eq 0) { Log 'Install: no share packages selected' }
         foreach ($pkg in $pkgs) {
             $tag = "[$($pkg.name)]"
             # guard: only run .exe/.msi installers (direct, or "run" inside a .zip); anything else is never executed
@@ -299,7 +342,7 @@ function Invoke-LabSetup {
         $wg = Get-Command winget.exe -ErrorAction SilentlyContinue
         if (-not $wg) { Log 'FAIL: winget not found (install "App Installer" from Microsoft Store)' 'Red'; $global:LabExitCode = 4 }
         else {
-            foreach ($id in $cfg.winget) {
+            foreach ($id in $wingetSel) {
                 $listed = winget list --id $id -e --accept-source-agreements 2>$null | Select-String ([regex]::Escape($id))
                 $verb = if ($listed) { 'upgrade' } else { 'install' }
                 Log "[$id] $verb"

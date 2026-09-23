@@ -20,6 +20,18 @@ cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
 
 ## Menu
 
+```
+=== Lab Setup ===
+  [1] Install software (choose programs)      -> list of share packages + winget apps, pick by number
+  [2] Optimize PC (Cleanup, RemoveApps, Tune)  -> pick which
+  [3] Activate Windows / Office (campus KMS)
+  [4] Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, SPSS license) -> pick which
+  [5] Check status (VPN, KMS, share, SPSS)
+  [6] Unlock wallpaper
+```
+
+In every sub-list: numbers like `1,3`, or Enter = all.
+
 | Task | What it does |
 |---|---|
 | Cleanup | Empty every user's Downloads + data drives in `config.json` (asks `YES` per drive) |
