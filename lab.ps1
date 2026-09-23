@@ -359,10 +359,24 @@ function Invoke-LabSetup {
     # ============ Wallpaper (lock) ============
     if ($tasks -contains 'Wallpaper' -and $shareOk) {
         Log '== Wallpaper ==' 'Cyan'
-        $src = Join-Path $share $cfg.wallpaper.file
-        $dst = Join-Path $root 'wallpaper.jpg'
-        if (-not (Test-Path $src)) { Log "FAIL: $src not found" 'Red' }
+        # any image in the share's wallpaper folder; menu picks one, otherwise the newest file
+        $imgs = @(Get-ChildItem (Join-Path $share $cfg.wallpaper.folder) -File -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Extension -in '.jpg', '.jpeg', '.png', '.bmp' } | Sort-Object LastWriteTime -Descending)
+        $src = $null
+        if ($imgs.Count -eq 1 -or ($imgs.Count -gt 1 -and -not $interactive)) { $src = $imgs[0].FullName }
+        elseif ($imgs.Count -gt 1) {
+            $labels = @($imgs | ForEach-Object { '{0,-40} {1:yyyy-MM-dd}' -f $_.Name, $_.LastWriteTime })
+            Write-Host "`n--- Wallpaper ---" -ForegroundColor Cyan
+            for ($i = 0; $i -lt $labels.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $labels[$i]) }
+            $w = Read-Host 'Choose one (Enter = newest)'
+            $src = if ($w -match '^\d+$' -and [int]$w -ge 1 -and [int]$w -le $imgs.Count) { $imgs[[int]$w - 1].FullName } else { $imgs[0].FullName }
+        }
+        $dst = if ($src) { Join-Path $root ('wallpaper' + [IO.Path]::GetExtension($src).ToLower()) }
+        if (-not $src) { Log "FAIL: no image in $(Join-Path $share $cfg.wallpaper.folder)" 'Red' }
         else {
+            Log "wallpaper: $(Split-Path $src -Leaf)"
+            # remove old copies with another extension so only the chosen image stays
+            Get-ChildItem $root -Filter 'wallpaper.*' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $dst -and -not $dryRun } | Remove-Item -Force
             $changed = -not (Test-Path $dst) -or (Get-FileHash $src).Hash -ne (Get-FileHash $dst).Hash
             if ($changed -and -not $dryRun) { Copy-Item $src $dst -Force; Log "copied new wallpaper" }
             # Users: read-only on LabSetup folder

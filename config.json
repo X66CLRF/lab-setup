@@ -98,7 +98,7 @@
   },
 
   "wallpaper": {
-    "file": "wallpaper\\lab.jpg",
+    "folder": "wallpaper",
     "style": 4
   }
 }

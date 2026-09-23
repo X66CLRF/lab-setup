@@ -42,7 +42,7 @@ In every sub-list: numbers like `1,3`, or Enter = all.
 | Fonts | Thai fonts from share `fonts\` for all users |
 | Certs | Trusted Root import, thumbprint allowlist only |
 | WinRARTheme | WinRAR theme for all users |
-| Wallpaper | Lab wallpaper, locked (Personalize greyed out) |
+| Wallpaper | Pick any image in share `wallpaper\` (newest if not asked), locked (Personalize greyed out) |
 | Tune | High performance power plan, lighter visual effects, clear temp |
 | SpssLicense | Write SPSS/Amos concurrent license server into `spssprod.inf` |
 | Check | Read-only status: VPN gateways, KMS, share, FortiClient/SPSS/Amos, SPSS license host |
