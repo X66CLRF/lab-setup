@@ -68,7 +68,9 @@ function Invoke-LabSetup {
     }
 
     Log "Tasks: $($tasks -join ', ')  DryRun: $dryRun" 'Cyan'
-    try { $cfg = Invoke-RestMethod -Uri $LabConfigUrl -UseBasicParsing }
+    # $env:LAB_CONFIG = local/UNC path to a config.json (testing without GitHub)
+    try { $cfg = if ($env:LAB_CONFIG) { Log "config: $env:LAB_CONFIG"; Get-Content $env:LAB_CONFIG -Raw -Encoding UTF8 | ConvertFrom-Json }
+                 else { Invoke-RestMethod -Uri $LabConfigUrl -UseBasicParsing } }
     catch { Log "FAIL load config: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 1; return }
 
     # --- safety guard: only lab machines ---
