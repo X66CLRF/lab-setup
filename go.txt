@@ -2,7 +2,7 @@
 #   irm x66clrf.github.io/lab-setup/go.txt | iex
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $u = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/lab.ps1'
-$h = '288E5B28D51157AF6044AEFBBC544353EEC732C9CDD0A64619C8295AC5A0FF6E'
+$h = '3DB239C05AD62818792E8D18CF69EB4A4B0CA514A73D030DED22907BC07B1D60'
 $b = (Invoke-WebRequest $u -UseBasicParsing).RawContentStream.ToArray()
 $got = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($b)) -replace '-'
 if ($got -ne $h) { Write-Host "STOP: lab.ps1 hash mismatch ($got). Not running." -ForegroundColor Red; return }

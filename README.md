@@ -2,7 +2,12 @@
 
 Lab PC setup for Windows 11 Pro (NSRU lab). One command, menu driven.
 
-## Run
+## Run (main: from the share, campus network)
+
+On a lab PC open `\\192.168.0.72\LabDeploy\lab\` and double-click **run.cmd** (asks for admin, then shows the menu).
+Config is read from `config.json` next to `lab.ps1` on the share, so edits there apply immediately.
+
+## Run (alternative: from GitHub)
 
 PowerShell **as Administrator**:
 

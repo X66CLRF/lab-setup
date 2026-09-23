@@ -8,6 +8,9 @@
 #   Tasks: Cleanup BrowserClean RemoveApps Tune Install Winget Activate Fonts Certs WinRARTheme Wallpaper BrowserSearch SpssLicense Check Unlock
 # Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
 
+# Folder of this script when run as a file (run.cmd on the share); empty for irm|iex
+$LabScriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent }
+
 # Pin to a tag/commit, never 'main'
 $LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/config.json'
 
@@ -68,9 +71,11 @@ function Invoke-LabSetup {
     }
 
     Log "Tasks: $($tasks -join ', ')  DryRun: $dryRun" 'Cyan'
-    # $env:LAB_CONFIG = local/UNC path to a config.json (testing without GitHub)
-    try { $cfg = if ($env:LAB_CONFIG) { Log "config: $env:LAB_CONFIG"; Get-Content $env:LAB_CONFIG -Raw -Encoding UTF8 | ConvertFrom-Json }
-                 else { Invoke-RestMethod -Uri $LabConfigUrl -UseBasicParsing } }
+    # config source: $env:LAB_CONFIG path > config.json next to this script (run.cmd on the share) > GitHub tag
+    $cfgPath = if ($env:LAB_CONFIG) { $env:LAB_CONFIG }
+               elseif ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'config.json'))) { Join-Path $LabScriptDir 'config.json' }
+    try { $cfg = if ($cfgPath) { Log "config: $cfgPath"; Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+                 else { Log "config: $LabConfigUrl"; Invoke-RestMethod -Uri $LabConfigUrl -UseBasicParsing } }
     catch { Log "FAIL load config: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 1; return }
 
     # --- safety guard: only lab machines ---
