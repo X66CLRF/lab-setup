@@ -37,12 +37,13 @@ cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
 
 ```
 === Lab Setup ===
-  [1] Install software (choose programs)      -> list of share packages + winget apps, pick by number
-  [2] Optimize PC (Cleanup, RemoveApps, Tune)  -> pick which
-  [3] Activate Windows / Office (campus KMS)
-  [4] Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, SPSS license) -> pick which
-  [5] Check status (VPN, KMS, share, SPSS)
+  [1] Install software & auto-activate (Office, SPSS, share, winget)
+  [2] Optimize PC (Cleanup, BrowserClean, RemoveApps, Tune)
+  [3] Check & fix licenses (Windows, Office, SPSS - ตรวจสอบ/ต่ออายุ)
+  [4] Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search)
+  [5] Check network status (VPN, KMS, share ports)
   [6] Unlock wallpaper
+  [7] Auto Sleep/Wake schedule (16:40 / 08:20)
 ```
 
 In every sub-list: numbers like `1,3`, or Enter = all.
@@ -52,10 +53,10 @@ In every sub-list: numbers like `1,3`, or Enter = all.
 | Cleanup | Every user: Downloads emptied, Desktop files/folders deleted (shortcuts `.lnk`/`.url` kept), user Temp, Recycle Bin; data drives in `config.json` (asks `YES` per drive) |
 | BrowserClean | Chrome/Edge: delete extra profiles (Profile 1, 2...), keep Default; clear its logins, cookies, history, sessions, cache (bookmarks/extensions kept) |
 | RemoveApps | Silent-uninstall adware / 3rd-party antivirus (Defender takes over) |
-| Install | Install/update packages from `\\192.168.0.72\LabDeploy\manifest.json` (SHA256 checked; `.exe`/`.msi`, or `.zip` + `run`; English `notice`/`noticeFile` shown for interactive installers) |
+| Install | Install/update packages from `\\192.168.0.72\LabDeploy\manifest.json`. Automatically activates Office KMS and configures SPSS license server upon install. |
 | Winget | Install/upgrade latest WinRAR, Foxit Reader via winget |
-| Activate | List Windows/Office products found now, activate chosen ones on campus KMS |
-| Fonts | Thai fonts from share `fonts\` for all users |
+| LicenseCheck | Inspect Windows, Office, and SPSS license health (licensed, days remaining, KMS, DaemonHost). Prompts to auto-fix/renew if any license is expired or missing. |
+| Fonts | Thai fonts from share `fonts\` or local/online fallback for all users |
 | Certs | Trusted Root import, thumbprint allowlist only |
 | WinRARTheme | WinRAR theme for all users |
 | Wallpaper | Pick any image in share `wallpaper\` (newest if not asked), locked (Personalize greyed out) |

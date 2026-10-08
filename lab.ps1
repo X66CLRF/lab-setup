@@ -5,7 +5,7 @@
 #   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
-#   Tasks: Cleanup BrowserClean RemoveApps Tune Install Winget Activate Fonts Certs WinRARTheme Wallpaper BrowserSearch SpssLicense Check Unlock
+#   Tasks: Cleanup BrowserClean RemoveApps Tune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch SpssLicense Check Unlock AutoSleep
 # Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
 
 # Folder of this script when run as a file (run.cmd on the share); empty for irm|iex
@@ -19,13 +19,13 @@ function Invoke-LabSetup {
     $dryRun = $env:LAB_DRYRUN -eq '1'
     # Menu groups: installing software is separate from optimizing the PC
     $groups = [ordered]@{
-        'Install software (choose programs)'           = @('Install', 'Winget')
-        'Optimize PC (Cleanup, BrowserClean, RemoveApps, Tune)' = @('Optimize')
-        'Activate Windows / Office (campus KMS - Lab PC only)' = @('Activate')
-        'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search, SPSS license)' = @('Settings')
-        'Check status (VPN, KMS, share, SPSS)'         = @('Check')
-        'Unlock wallpaper'                             = @('Unlock')
-        'Auto Sleep/Wake schedule (16:40 / 08:20)'     = @('AutoSleep')
+        'Install software & auto-activate (Office, SPSS, share, winget)' = @('Install', 'Winget')
+        'Optimize PC (Cleanup, BrowserClean, RemoveApps, Tune)'          = @('Optimize')
+        'Check & fix licenses (ตรวจไลเซนส์ Windows, Office, SPSS - ต่ออายุ)' = @('LicenseCheck')
+        'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search)' = @('Settings')
+        'Check network status (VPN gateways, KMS, share ports)'         = @('Check')
+        'Unlock wallpaper'                                              = @('Unlock')
+        'Auto Sleep/Wake schedule (16:40 / 08:20)'                      = @('AutoSleep')
     }
     $subMenus = @{
         'Optimize' = @('Cleanup', 'BrowserClean', 'RemoveApps', 'Tune')
@@ -775,123 +775,190 @@ function Invoke-LabSetup {
         }
     }
 
-    # ============ Activate (university KMS, volume license) ============
-    # Detects every Windows/Office product with a key installed right now, shows a list, activates the chosen ones.
-    if ($tasks -contains 'Activate') {
-        Log '== Activate ==' 'Cyan'
-        $proceedActivate = $true
-        if ($interactive -and -not $autoOfficeActivate) {
-            Write-Host ''
-            Write-Host '  [!] WARNING: Campus KMS activation is intended for Lab PCs only.' -ForegroundColor Yellow
-            Write-Host '      It will replace current product keys with campus volume license (GVLK).' -ForegroundColor Yellow
-            Write-Host '      Do NOT run on personal/dev machines if you want to keep your license.' -ForegroundColor Yellow
-            Write-Host ''
-            $confirm = Read-Host "  Proceed with KMS activation? [Y/n] (Enter = Y)"
-            if ($confirm -match '^(n|no)$') {
-                Log 'SKIP Activate (cancelled by user)' 'Yellow'
-                $proceedActivate = $false
-            }
-        } elseif ($autoOfficeActivate) {
-            Log "Office install detected -> automatically activating via campus KMS ($($cfg.kms.host))..." 'Cyan'
+    # ============ LicenseCheck & Activate (Check Windows, Office, SPSS & fix if expired) ============
+    if ($tasks -contains 'LicenseCheck' -or $tasks -contains 'Activate') {
+        Log '== License Check & Activation ==' 'Cyan'
+        $kms = $cfg.kms.host
+        $winAppId = '55c92734-d682-4d71-983e-d6ec3f16059f'
+        $offAppId = '0ff1ce15-a989-479d-af46-f275c6370663'
+        $statusName = @{ 0='Unlicensed'; 1='Licensed'; 2='OOB grace'; 3='OOT grace'; 4='NonGenuine grace'; 5='Notification'; 6='Extended grace' }
+
+        function Get-LicProducts {
+            Get-CimInstance SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL" |
+                Where-Object { $_.ApplicationID -in $winAppId, $offAppId } | Sort-Object ApplicationID, Name
         }
-        if ($proceedActivate) {
-            $kms = $cfg.kms.host
-            $winAppId = '55c92734-d682-4d71-983e-d6ec3f16059f'
-            $offAppId = '0ff1ce15-a989-479d-af46-f275c6370663'
-            $statusName = @{ 0='Unlicensed'; 1='Licensed'; 2='OOB grace'; 3='OOT grace'; 4='NonGenuine grace'; 5='Notification'; 6='Extended grace' }
-            function Get-LicProducts {
-                Get-CimInstance SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL" |
-                    Where-Object { $_.ApplicationID -in $winAppId, $offAppId } | Sort-Object ApplicationID, Name
+
+        $edition = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').EditionID
+        $gvlk    = $cfg.kms.windowsGvlk.$edition
+
+        $prods = @(Get-LicProducts)
+        $ibmRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ -and (Test-Path "$_\IBM") } | ForEach-Object { "$_\IBM" }
+        $spssInfs = @($ibmRoots | ForEach-Object { Get-ChildItem $_ -Recurse -Filter 'spssprod.inf' -ErrorAction SilentlyContinue })
+        $spssLs   = $cfg.spss.licenseServer
+
+        $osppFiles = @(
+            "$env:ProgramFiles\Microsoft Office\root\Office16\OSPP.VBS",
+            "$env:ProgramFiles\Microsoft Office\Office16\OSPP.VBS",
+            "${env:ProgramFiles(x86)}\Microsoft Office\root\Office16\OSPP.VBS",
+            "${env:ProgramFiles(x86)}\Microsoft Office\Office16\OSPP.VBS",
+            "$env:ProgramFiles\Microsoft Office\Office15\OSPP.VBS",
+            "${env:ProgramFiles(x86)}\Microsoft Office\Office15\OSPP.VBS"
+        ) | Where-Object { Test-Path $_ }
+
+        $needsFix = $false
+        $unlicensedProds = @()
+
+        if (-not $autoOfficeActivate) {
+            Write-Host ''
+            Write-Host '--- License Status Check ---' -ForegroundColor Cyan
+
+            # Check Windows & Office
+            if (-not $prods) {
+                Write-Host '  [!] Windows / Office: No licensed products found with keys.' -ForegroundColor Yellow
+                $needsFix = $true
+            } else {
+                foreach ($p in $prods) {
+                    $isKms = $p.Description -match 'VOLUME_KMSCLIENT'
+                    $isLic = $p.LicenseStatus -eq 1
+                    $days = [math]::Round($p.GracePeriodRemaining / 1440, 0)
+                    $daysText = if ($isLic -and $isKms) { " ($days days left)" } else { '' }
+                    $chan = if ($isKms) { 'KMS' } elseif ($p.ApplicationID -eq $winAppId -and $gvlk) { 'GVLK eligible' } else { 'Retail/OEM' }
+                    $stat = $statusName[[int]$p.LicenseStatus]
+
+                    if ($isLic) {
+                        Write-Host ("  [OK] {0,-46} {1,-10} {2}{3}" -f $p.Name, $stat, $chan, $daysText) -ForegroundColor Green
+                    } else {
+                        Write-Host ("  [!]  {0,-46} {1,-10} {2} (EXPIRED/UNLICENSED)" -f $p.Name, $stat, $chan) -ForegroundColor Red
+                        $needsFix = $true
+                        $unlicensedProds += $p
+                    }
+                }
             }
-            $svc = Get-CimInstance SoftwareLicensingService
 
-            # Windows not on a KMS channel -> offer GVLK for its edition
-            $winProd = Get-LicProducts | Where-Object ApplicationID -eq $winAppId | Select-Object -First 1
-            $edition = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').EditionID
-            $gvlk    = $cfg.kms.windowsGvlk.$edition
-
-            $prods = @(Get-LicProducts)
-            if (-not $prods -and -not $autoOfficeActivate) { Log 'No Windows/Office product with a key found' 'Yellow' }
-            else {
-                if ($prods -and -not $autoOfficeActivate) {
-                    Write-Host ''
-                    for ($i = 0; $i -lt $prods.Count; $i++) {
-                        $p = $prods[$i]
-                        $kmsOk = $p.Description -match 'VOLUME_KMSCLIENT'
-                        $chan  = if ($kmsOk) { 'KMS' } elseif ($p.ApplicationID -eq $winAppId -and $gvlk) { "$(($p.Description -split ',')[-1].Trim()) -> GVLK" } else { ($p.Description -split ',')[-1].Trim() + ' (not KMS)' }
-                        Write-Host ("  [{0}] {1,-55} {2,-14} {3}" -f ($i + 1), $p.Name, $statusName[[int]$p.LicenseStatus], $chan)
+            # Check SPSS
+            $spssNeedsFix = $false
+            if ($spssInfs) {
+                foreach ($inf in $spssInfs) {
+                    $appName = Split-Path (Split-Path $inf.FullName -Parent) -Leaf
+                    $curHost = $null
+                    Get-Content $inf.FullName | Where-Object { $_ -match '^\s*DaemonHost\s*=\s*(.+)$' } | ForEach-Object { $curHost = $Matches[1].Trim() }
+                    if ($curHost -eq $spssLs) {
+                        Write-Host ("  [OK] SPSS ({0,-16}) DaemonHost = {1}" -f $appName, $curHost) -ForegroundColor Green
+                    } else {
+                        Write-Host ("  [!]  SPSS ({0,-16}) DaemonHost = {1} (Expected: {2})" -f $appName, $(if ($curHost) { $curHost } else { 'NOT SET' }), $spssLs) -ForegroundColor Yellow
+                        $needsFix = $true
+                        $spssNeedsFix = $true
                     }
                 }
-                $sel = if ($interactive -and -not $autoOfficeActivate) { Read-Host 'Activate which? (e.g. 1,3 / Enter = all not licensed)' } else { '' }
-                $chosen = if ($autoOfficeActivate) {
-                    $prods | Where-Object { $_.ApplicationID -eq $offAppId -and ($_.LicenseStatus -ne 1 -or $_.Description -notmatch 'VOLUME_KMSCLIENT') }
-                } elseif ($sel -match '\d') {
-                    $sel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' -and [int]$_ -ge 1 -and [int]$_ -le $prods.Count } | ForEach-Object { $prods[[int]$_ - 1] }
-                } else {
-                    $prods | Where-Object { $_.LicenseStatus -ne 1 -or $_.Description -notmatch 'VOLUME_KMSCLIENT' }
+            }
+            Write-Host ''
+        }
+
+        # Determine if we should proceed with activation / fix
+        $proceed = $false
+        $chosen = @()
+
+        if ($autoOfficeActivate) {
+            # Auto-triggered from Install software: silent activation for Office and SPSS
+            $proceed = $true
+            $chosen = $prods | Where-Object { $_.ApplicationID -eq $offAppId -and ($_.LicenseStatus -ne 1 -or $_.Description -notmatch 'VOLUME_KMSCLIENT') }
+        } elseif ($needsFix) {
+            Write-Host '  [!] Found expired, unlicensed, or unconfigured products on this PC.' -ForegroundColor Yellow
+            $ans = Read-Host '  Activate and fix licenses now? [Y/n] (Enter = Yes, B = Back)'
+            if ($ans -notmatch '^(n|no|b)$') {
+                $proceed = $true
+                $chosen = if ($unlicensedProds) { $unlicensedProds } else { $prods | Where-Object { $_.LicenseStatus -ne 1 -or $_.Description -notmatch 'VOLUME_KMSCLIENT' } }
+            }
+        } else {
+            Log 'All detected licenses are active and healthy.' 'Green'
+            if ($interactive) {
+                $ans = Read-Host '  Force re-activate / renew KMS license counter now? [y/N] (Enter = Back)'
+                if ($ans -match '^(y|yes)$') {
+                    $proceed = $true
+                    $chosen = $prods
                 }
+            }
+        }
 
-                $osppFiles = @(
-                    "$env:ProgramFiles\Microsoft Office\root\Office16\OSPP.VBS",
-                    "$env:ProgramFiles\Microsoft Office\Office16\OSPP.VBS",
-                    "${env:ProgramFiles(x86)}\Microsoft Office\root\Office16\OSPP.VBS",
-                    "${env:ProgramFiles(x86)}\Microsoft Office\Office16\OSPP.VBS",
-                    "$env:ProgramFiles\Microsoft Office\Office15\OSPP.VBS",
-                    "${env:ProgramFiles(x86)}\Microsoft Office\Office15\OSPP.VBS"
-                ) | Where-Object { Test-Path $_ }
-
-                if (-not $chosen -and -not $autoOfficeActivate -and -not $osppFiles) {
-                    Log 'Activate: nothing to do (all target products licensed)' 'Green'
-                } elseif (-not (Test-NetConnection $kms -Port 1688 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
-                    Log "FAIL: cannot reach KMS $($kms):1688 (must be on campus network)" 'Red'; $global:LabExitCode = 5
-                } else {
-                    if (-not $dryRun) {
-                        Invoke-CimMethod -InputObject $svc -MethodName SetKeyManagementServiceMachine -Arguments @{ MachineName = $kms } | Out-Null
-                        Invoke-CimMethod -InputObject $svc -MethodName SetKeyManagementServicePort -Arguments @{ PortNumber = [uint32]1688 } | Out-Null
-                    }
-                    foreach ($p in $chosen) {
-                        $label = $p.Name
-                        if ($dryRun) { Log "  [dry] activate $label"; continue }
-                        # Windows retail/OEM -> switch to KMS client key first
-                        if ($p.ApplicationID -eq $winAppId -and $p.Description -notmatch 'VOLUME_KMSCLIENT') {
-                            if (-not $gvlk) { Log "$label : SKIP no GVLK for edition '$edition'" 'Yellow'; continue }
-                            try {
-                                Invoke-CimMethod -InputObject $svc -MethodName InstallProductKey -Arguments @{ ProductKey = $gvlk } | Out-Null
-                                Invoke-CimMethod -InputObject $svc -MethodName RefreshLicenseStatus | Out-Null
-                                $p = Get-LicProducts | Where-Object ApplicationID -eq $winAppId | Select-Object -First 1
-                                Log "$label : GVLK installed ($edition)"
-                            } catch { Log "$label : FAIL install GVLK $($_.Exception.Message)" 'Red'; $global:LabExitCode = 5; continue }
-                        }
-                        if ($p.Description -notmatch 'VOLUME_KMSCLIENT') {
-                            Log "$label : SKIP not a volume (KMS) edition - retail/subscription cannot use KMS" 'Yellow'; continue
-                        }
+        if ($proceed) {
+            $kmsReachable = Test-NetConnection $kms -Port 1688 -InformationLevel Quiet -WarningAction SilentlyContinue
+            if (-not $kmsReachable) {
+                Log "FAIL: cannot reach KMS $($kms):1688 (must be on campus network or VPN)" 'Red'
+                $global:LabExitCode = 5
+            } else {
+                $svc = Get-CimInstance SoftwareLicensingService
+                if (-not $dryRun) {
+                    Invoke-CimMethod -InputObject $svc -MethodName SetKeyManagementServiceMachine -Arguments @{ MachineName = $kms } | Out-Null
+                    Invoke-CimMethod -InputObject $svc -MethodName SetKeyManagementServicePort -Arguments @{ PortNumber = [uint32]1688 } | Out-Null
+                }
+                foreach ($p in $chosen) {
+                    $label = $p.Name
+                    if ($dryRun) { Log "  [dry] activate $label"; continue }
+                    # Windows retail/OEM -> switch to KMS client key first
+                    if ($p.ApplicationID -eq $winAppId -and $p.Description -notmatch 'VOLUME_KMSCLIENT') {
+                        if (-not $gvlk) { Log "$label : SKIP no GVLK for edition '$edition'" 'Yellow'; continue }
                         try {
-                            Invoke-CimMethod -InputObject $p -MethodName Activate -ErrorAction Stop | Out-Null
-                            Log "$label : activated" 'Green'
-                        } catch {
-                            $hr = '0x{0:X8}' -f $_.Exception.HResult
-                            Log "$label : FAIL $hr $($_.Exception.Message)" 'Red'; $global:LabExitCode = 5
+                            Invoke-CimMethod -InputObject $svc -MethodName InstallProductKey -Arguments @{ ProductKey = $gvlk } | Out-Null
+                            Invoke-CimMethod -InputObject $svc -MethodName RefreshLicenseStatus | Out-Null
+                            $p = Get-LicProducts | Where-Object ApplicationID -eq $winAppId | Select-Object -First 1
+                            Log "$label : GVLK installed ($edition)"
+                        } catch { Log "$label : FAIL install GVLK $($_.Exception.Message)" 'Red'; $global:LabExitCode = 5; continue }
+                    }
+                    if ($p.Description -notmatch 'VOLUME_KMSCLIENT') {
+                        Log "$label : SKIP not a volume (KMS) edition - retail/subscription cannot use KMS" 'Yellow'; continue
+                    }
+                    try {
+                        Invoke-CimMethod -InputObject $p -MethodName Activate -ErrorAction Stop | Out-Null
+                        Log "$label : activated successfully" 'Green'
+                    } catch {
+                        $hr = '0x{0:X8}' -f $_.Exception.HResult
+                        Log "$label : FAIL $hr $($_.Exception.Message)" 'Red'; $global:LabExitCode = 5
+                    }
+                }
+
+                # Trigger OSPP.VBS for Office if present to ensure Click-to-Run activation
+                if ($osppFiles -and ($autoOfficeActivate -or ($chosen | Where-Object ApplicationID -eq $offAppId) -or ($unlicensedProds | Where-Object ApplicationID -eq $offAppId))) {
+                    foreach ($ospp in $osppFiles) {
+                        if ($dryRun) { Log "  [dry] ospp.vbs -> $ospp"; continue }
+                        Log "Setting Office KMS host via $ospp..."
+                        cscript.exe //nologo $ospp /sethst:$kms | Out-Null
+                        $actOut = cscript.exe //nologo $ospp /act
+                        $actSummary = ($actOut | Select-String -Pattern '<Product activation' -Context 0,1) -join ' '
+                        if ($actOut -match 'successful') {
+                            Log "Office KMS activation successful via OSPP" 'Green'
+                        } elseif ($actSummary) {
+                            Log "OSPP: $actSummary" 'Yellow'
                         }
                     }
+                }
 
-                    # Trigger OSPP.VBS for Office if present to ensure Click-to-Run activation
-                    if ($osppFiles -and ($autoOfficeActivate -or ($chosen | Where-Object ApplicationID -eq $offAppId))) {
-                        foreach ($ospp in $osppFiles) {
-                            if ($dryRun) { Log "  [dry] ospp.vbs -> $ospp"; continue }
-                            Log "Setting Office KMS host via $ospp..."
-                            cscript.exe //nologo $ospp /sethst:$kms | Out-Null
-                            $actOut = cscript.exe //nologo $ospp /act
-                            $actSummary = ($actOut | Select-String -Pattern '<Product activation' -Context 0,1) -join ' '
-                            if ($actOut -match 'successful') {
-                                Log "Office KMS activation successful via OSPP" 'Green'
-                            } elseif ($actSummary) {
-                                Log "OSPP: $actSummary" 'Yellow'
+                # Fix SPSS if needed or if part of this run
+                if ($spssNeedsFix -or $tasks -contains 'SpssLicense' -or ($autoOfficeActivate -and $hasSpss)) {
+                    if ($spssLs -and $spssInfs) {
+                        foreach ($inf in $spssInfs) {
+                            $txt = Get-Content $inf.FullName
+                            $new = $txt | ForEach-Object { if ($_ -match '^\s*DaemonHost\s*=') { "DaemonHost=$spssLs" } elseif ($_ -match '^\s*LicenseType\s*=') { 'LicenseType=Network' } else { $_ } }
+                            if (-not ($new -match '^DaemonHost=')) { $new += "DaemonHost=$spssLs" }
+                            if (-not ($new -match '^LicenseType=')) { $new += 'LicenseType=Network' }
+                            if (($txt -join "`n") -ne ($new -join "`n")) {
+                                if (-not $dryRun) {
+                                    Copy-Item $inf.FullName "$($inf.FullName).bak" -Force
+                                    Set-Content $inf.FullName $new -Encoding ASCII
+                                }
+                                Log "  $($inf.FullName) -> DaemonHost=$spssLs (backup .bak)" 'Green'
+                            } else {
+                                Log "  $($inf.FullName): already set to $spssLs"
+                            }
+                            $lsHostFile = Join-Path $inf.DirectoryName 'lshost'
+                            if (-not (Test-Path $lsHostFile) -or (Get-Content $lsHostFile -ErrorAction SilentlyContinue).Trim() -ne $spssLs) {
+                                if (-not $dryRun) { Set-Content -Path $lsHostFile -Value $spssLs -Encoding ASCII }
+                                Log "  $lsHostFile -> $spssLs" 'Green'
                             }
                         }
                     }
-
-                    Invoke-CimMethod -InputObject $svc -MethodName RefreshLicenseStatus -ErrorAction SilentlyContinue | Out-Null
                 }
+
+                Invoke-CimMethod -InputObject $svc -MethodName RefreshLicenseStatus -ErrorAction SilentlyContinue | Out-Null
             }
         }
     }
