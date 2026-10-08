@@ -135,14 +135,24 @@ function Invoke-LabSetup {
         $tasks = @()
         if ($interactive) {
             Write-Host "`n=== Lab Setup ===" -ForegroundColor Cyan
-            $tClient = New-Object Net.Sockets.TcpClient
-            $ar = $tClient.BeginConnect('192.168.0.72', 445, $null, $null)
-            $isShareOk = $ar.AsyncWaitHandle.WaitOne(800)
-            $tClient.Close()
-            $netStatus = if ($isShareOk) { "[CONNECTED]" } else { "[OFFLINE / VPN NEEDED]" }
-            $netCol = if ($isShareOk) { 'Green' } else { 'Yellow' }
-            Write-Host "  Campus Share (192.168.0.72): " -NoNewline -ForegroundColor DarkGray
-            Write-Host "$netStatus" -ForegroundColor $netCol
+            $tClient1 = New-Object Net.Sockets.TcpClient
+            $ar1 = $tClient1.BeginConnect('192.168.10.111', 1688, $null, $null)
+            $isCampusOk = $ar1.AsyncWaitHandle.WaitOne(600)
+            $tClient1.Close()
+
+            $tClient2 = New-Object Net.Sockets.TcpClient
+            $ar2 = $tClient2.BeginConnect('192.168.0.72', 445, $null, $null)
+            $isShareOk = $ar2.AsyncWaitHandle.WaitOne(600)
+            $tClient2.Close()
+
+            Write-Host "  Network: " -NoNewline -ForegroundColor DarkGray
+            if ($isCampusOk) {
+                Write-Host "NSRU Campus " -ForegroundColor Green -NoNewline
+                if ($isShareOk) { Write-Host "(Wired LAN / Share OK)" -ForegroundColor Green }
+                else { Write-Host "(Wi-Fi / Share port 445 restricted)" -ForegroundColor Yellow }
+            } else {
+                Write-Host "Outside Campus (VPN Needed for internal share)" -ForegroundColor Yellow
+            }
             Write-Host ""
 
             $gNames = @($groups.Keys)
@@ -326,22 +336,30 @@ function Invoke-LabSetup {
     $share      = $uncShare
     $shareDrive = $null
     $shareOk    = $false
-    if ($tasks | Where-Object { $_ -in 'Install', 'Wallpaper', 'Fonts', 'Certs', 'WinRARTheme' }) {
-        # Fast socket check first (1.5s timeout) to prevent 45-second SMB freeze when off-campus
+    $strictShareTasks = @($tasks | Where-Object { $_ -in 'Install', 'Wallpaper', 'Certs', 'WinRARTheme' })
+    $fontTask = @($tasks | Where-Object { $_ -eq 'Fonts' })
+    if ($strictShareTasks -or $fontTask) {
+        # Fast socket check first (1.5s timeout) to prevent 45-second SMB freeze
         $tSock = New-Object Net.Sockets.TcpClient
         $ar = $tSock.BeginConnect($shareHost, 445, $null, $null)
         $portReachable = $ar.AsyncWaitHandle.WaitOne(1500)
         $tSock.Close()
 
         if (-not $portReachable) {
-            Log "FAIL: cannot reach $shareHost port 445 (offline, wrong subnet, or need campus VPN)" 'Red'
+            if ($strictShareTasks) {
+                Log "FAIL: cannot reach $shareHost port 445 (port 445 blocked on Wi-Fi - connect to wired lab LAN or VPN)" 'Red'
+                $global:LabExitCode = 2
+            } else {
+                Log "[i] $shareHost port 445 unreachable (Wi-Fi/external). Will use local/GitHub fonts fallback." 'Yellow'
+            }
         } elseif (Test-Path "$uncShare\manifest.json") {
             $shareOk = $true; Log "share OK: $uncShare (stored credential)"
         } else {
             Log "No stored credential for $shareHost. Tip: cmdkey /add:$shareHost /user:$shareHost\$($cfg.deployUser) /pass" 'Yellow'
             $cred = Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare"
-            if (-not $cred) { Log 'FAIL: no credential given' 'Red' }
-            else {
+            if (-not $cred) {
+                if ($strictShareTasks) { Log 'FAIL: no credential given' 'Red'; $global:LabExitCode = 2 }
+            } else {
                 try {
                     $shareDrive = New-PSDrive -Name LabDeploy -PSProvider FileSystem -Root $uncShare -Credential $cred -ErrorAction Stop
                     $share = 'LabDeploy:'; $shareOk = $true; Log "share OK: $uncShare"
@@ -352,11 +370,11 @@ function Invoke-LabSetup {
                            elseif ($m -match 'network path|network name') { 'share name not found' }
                            elseif ($m -match 'multiple connections') { 'already connected with another user (run: net use * /delete)' }
                            else { $m }
-                    Log "FAIL connect share: $why" 'Red'
+                    if ($strictShareTasks) { Log "FAIL connect share: $why" 'Red'; $global:LabExitCode = 2 }
+                    else { Log "Notice connect share: $why" 'Yellow' }
                 }
             }
         }
-        if (-not $shareOk) { $global:LabExitCode = 2 }
     }
 
     # ============ Install: read manifest + choose programs ============
@@ -533,24 +551,55 @@ function Invoke-LabSetup {
     }
 
     # ============ Fonts (all users, skip ones already present) ============
-    if ($tasks -contains 'Fonts' -and $shareOk) {
+    if ($tasks -contains 'Fonts') {
         Log '== Fonts ==' 'Cyan'
-        $fontSrc = Join-Path $share $cfg.fonts.folder
         $fontDir = Join-Path $env:SystemRoot 'Fonts'
         $fontReg = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
-        $added = 0
-        foreach ($ft in Get-ChildItem $fontSrc -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.ttf', '.otf' }) {
-            $target = Join-Path $fontDir $ft.Name
-            if ((Test-Path $target) -and (Get-Item $target).Length -eq $ft.Length) { continue }
-            if ($dryRun) { Log "  [dry] font $($ft.Name)"; continue }
-            try {
-                Copy-Item $ft.FullName $target -Force -ErrorAction Stop
-                $kind = if ($ft.Extension -eq '.otf') { 'OpenType' } else { 'TrueType' }
-                New-ItemProperty -Path $fontReg -Name "$($ft.BaseName) ($kind)" -Value $ft.Name -PropertyType String -Force | Out-Null
-                $added++
-            } catch { Log "  FAIL font $($ft.Name): $($_.Exception.Message)" 'Yellow' }
+        $fontSrc = $null
+
+        if ($shareOk -and (Test-Path (Join-Path $share $cfg.fonts.folder))) {
+            $fontSrc = Join-Path $share $cfg.fonts.folder
+            Log "Using fonts from campus share: $fontSrc"
+        } elseif ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'fonts'))) {
+            $fontSrc = Join-Path $LabScriptDir 'fonts'
+            Log "Using fonts from local folder: $fontSrc"
+        } else {
+            $tmpFontDir = Join-Path $root 'fonts'
+            New-Item -ItemType Directory -Force -Path $tmpFontDir | Out-Null
+            Log "Downloading standard Thai fonts from GitHub..."
+            $fontFiles = @(
+                'THSarabun.ttf', 'THSarabun Bold.ttf', 'THSarabun Italic.ttf', 'THSarabun Bold Italic.ttf',
+                'THSarabunNew.ttf', 'THSarabunNew Bold.ttf', 'THSarabunNew Italic.ttf', 'THSarabunNew BoldItalic.ttf'
+            )
+            foreach ($fn in $fontFiles) {
+                $targetFile = Join-Path $tmpFontDir $fn
+                if (-not (Test-Path $targetFile)) {
+                    $encodedFn = [Uri]::EscapeDataString($fn)
+                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/main/fonts/$encodedFn"
+                    try { Invoke-WebRequest $url -OutFile $targetFile -UseBasicParsing -TimeoutSec 10 }
+                    catch { Log "FAIL download font $fn : $($_.Exception.Message)" 'Yellow' }
+                }
+            }
+            $fontSrc = $tmpFontDir
         }
-        Log "Fonts: $added new (others already installed). Apps see them after restart/sign-in." 'Green'
+
+        if ($fontSrc -and (Test-Path $fontSrc)) {
+            $added = 0
+            foreach ($ft in Get-ChildItem $fontSrc -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.ttf', '.otf' }) {
+                $target = Join-Path $fontDir $ft.Name
+                if ((Test-Path $target) -and (Get-Item $target).Length -eq $ft.Length) { continue }
+                if ($dryRun) { Log "  [dry] font $($ft.Name)"; continue }
+                try {
+                    Copy-Item $ft.FullName $target -Force -ErrorAction Stop
+                    $kind = if ($ft.Extension -eq '.otf') { 'OpenType' } else { 'TrueType' }
+                    New-ItemProperty -Path $fontReg -Name "$($ft.BaseName) ($kind)" -Value $ft.Name -PropertyType String -Force | Out-Null
+                    $added++
+                } catch { Log "  FAIL font $($ft.Name): $($_.Exception.Message)" 'Yellow' }
+            }
+            Log "Fonts: $added new / updated (others already present). Apps see them after restart/sign-in." 'Green'
+        } else {
+            Log "FAIL: no fonts found" 'Red'
+        }
     }
 
     # ============ WinRAR theme (every user + Default profile) ============
@@ -620,7 +669,15 @@ function Invoke-LabSetup {
     if ($tasks -contains 'Check') {
         Log '== Check ==' 'Cyan'
         function Show-Port($label, $h, $port) {
-            $ok = $h -and (Test-NetConnection $h -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue)
+            $ok = $false
+            if ($h) {
+                $sock = New-Object Net.Sockets.TcpClient
+                try {
+                    $ar = $sock.BeginConnect($h, $port, $null, $null)
+                    $ok = $ar.AsyncWaitHandle.WaitOne(1200)
+                } catch { $ok = $false }
+                finally { $sock.Close() }
+            }
             Log ("  {0,-22} {1}:{2}  {3}" -f $label, $h, $port, $(if ($ok) { 'OK' } else { 'UNREACHABLE' })) $(if ($ok) { 'Green' } else { 'Yellow' })
         }
         foreach ($v in $cfg.vpn) { Show-Port "VPN $($v.name)" $v.gateway $v.port }

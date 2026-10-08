@@ -27,15 +27,20 @@ if %errorlevel% neq 0 (
 )
 echo [OK] Internet connected.
 
-:: 3. ตรวจสอบเครือข่ายภายใน (Share 192.168.0.72 หรือ SPSS License 192.168.3.10)
+:: 3. ตรวจสอบเครือข่ายภายใน มรนว.
 echo.
-echo [2/4] Checking campus network reachability...
-powershell -NoProfile -Command "$t = New-Object Net.Sockets.TcpClient; $a = $t.BeginConnect('192.168.0.72', 445, $null, $null); if (-not $a.AsyncWaitHandle.WaitOne(1500)) { $t.Close(); exit 1 } else { $t.EndConnect($a); $t.Close(); exit 0 }"
-if %errorlevel% neq 0 (
-    echo [i] Outside campus network - cannot reach 192.168.0.72:445 directly.
-    echo [i] Note: Connect FortiClient VPN manually if campus share is needed.
+echo [2/4] Checking NSRU campus network...
+powershell -NoProfile -Command "$t = New-Object Net.Sockets.TcpClient; $a = $t.BeginConnect('192.168.10.111', 1688, $null, $null); if ($a.AsyncWaitHandle.WaitOne(1000)) { exit 0 } else { exit 1 }"
+if %errorlevel% equ 0 (
+    echo [OK] Inside NSRU campus network.
+    powershell -NoProfile -Command "$t = New-Object Net.Sockets.TcpClient; $a = $t.BeginConnect('192.168.0.72', 445, $null, $null); if (-not $a.AsyncWaitHandle.WaitOne(800)) { exit 1 } else { exit 0 }"
+    if !errorlevel! neq 0 (
+        echo [i] Note: Campus Wi-Fi detected - Share port 445 restricted [normal on Wi-Fi, OK on wired lab LAN].
+    ) else (
+        echo [OK] Campus SMB share reachable.
+    )
 ) else (
-    echo [OK] Campus network reachable.
+    echo [i] Outside campus network [connect FortiClient VPN if campus share is needed].
 )
 
 :: 4. ตั้งค่าระบบ Sleep 16:40 และ Wake 08:20 (ตัวเลือกเสริม)
