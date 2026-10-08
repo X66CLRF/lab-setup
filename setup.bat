@@ -17,7 +17,7 @@ if not exist "%DEPLOY_DIR%" mkdir "%DEPLOY_DIR%"
 :: 2. ตรวจสอบอินเทอร์เน็ต
 :CHECK_NET
 echo.
-echo [1/4] Checking Internet connection...
+echo [1/3] Checking Internet connection...
 ping -n 1 1.1.1.1 >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] Internet is not connected.
@@ -29,7 +29,7 @@ echo [OK] Internet connected.
 
 :: 3. ตรวจสอบเครือข่ายภายใน มรนว.
 echo.
-echo [2/4] Checking NSRU campus network...
+echo [2/3] Checking NSRU campus network...
 powershell -NoProfile -Command "$t = New-Object Net.Sockets.TcpClient; $a = $t.BeginConnect('192.168.10.111', 1688, $null, $null); if ($a.AsyncWaitHandle.WaitOne(1000)) { exit 0 } else { exit 1 }"
 if %errorlevel% equ 0 (
     echo [OK] Inside NSRU campus network.
@@ -43,26 +43,9 @@ if %errorlevel% equ 0 (
     echo [i] Outside campus network [connect FortiClient VPN if campus share is needed].
 )
 
-:: 4. ตั้งค่าระบบ Sleep 16:40 และ Wake 08:20 (ตัวเลือกเสริม)
+:: 4. เริ่มรันสคริปต์
 echo.
-echo [3/4] Auto Sleep/Wake Schedule (Optional - Lab PC only)
-set "ENABLE_SLEEP="
-set /p ENABLE_SLEEP="Enable Auto Sleep 16:40 and Wake 08:20 Mon-Fri? [y/N] (Default N): "
-if /i "!ENABLE_SLEEP!"=="y" (
-    powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKING 1 >nul 2>&1
-    powercfg /setactive SCHEME_CURRENT >nul 2>&1
-    schtasks /create /tn "Lab_AutoSleep" /tr "powershell -Command Add-Type -Assembly System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState('Suspend', $false, $false)" /sc weekly /d MON,TUE,WED,THU,FRI /st 16:40 /ru "SYSTEM" /f >nul 2>&1
-    powershell -NoProfile -Command "$act = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c ping 1.1.1.1 -n 1'; $trg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '08:20'; $set = New-ScheduledTaskSettingsSet -WakeToRun; Register-ScheduledTask -TaskName 'Lab_AutoWake' -Action $act -Trigger $trg -Settings $set -User 'SYSTEM' -Force | Out-Null"
-    echo [OK] Auto Sleep/Wake configured.
-) else (
-    echo [i] Skipped Auto Sleep/Wake.
-    schtasks /delete /tn "Lab_AutoSleep" /f >nul 2>&1
-    schtasks /delete /tn "Lab_AutoWake" /f >nul 2>&1
-)
-
-:: 5. เริ่มรันสคริปต์
-echo.
-echo [4/4] Starting Lab Setup...
+echo [3/3] Starting Lab Setup...
 copy /y "%~f0" "%DEPLOY_DIR%\setup.bat" >nul 2>&1
 
 :: เลือกรัน: ถ้ามี lab.ps1 อยู่ข้างๆ ให้รันจากไฟล์ตรง ถ้าไม่มีให้ดึงออนไลน์จาก main

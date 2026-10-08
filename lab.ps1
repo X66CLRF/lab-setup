@@ -25,6 +25,7 @@ function Invoke-LabSetup {
         'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search, SPSS license)' = @('Settings')
         'Check status (VPN, KMS, share, SPSS)'         = @('Check')
         'Unlock wallpaper'                             = @('Unlock')
+        'Auto Sleep/Wake schedule (16:40 / 08:20)'     = @('AutoSleep')
     }
     $subMenus = @{
         'Optimize' = @('Cleanup', 'BrowserClean', 'RemoveApps', 'Tune')
@@ -717,6 +718,34 @@ function Invoke-LabSetup {
                 }
             }
         } finally { Close-UserHives $hives }
+    }
+
+    # ============ Auto Sleep/Wake (16:40 / 08:20 Mon-Fri) ============
+    if ($tasks -contains 'AutoSleep') {
+        Log '== Auto Sleep/Wake ==' 'Cyan'
+        Write-Host ""
+        Write-Host "  [1] Enable Auto Sleep (16:40) & Wake (08:20) Mon-Fri" -ForegroundColor Cyan
+        Write-Host "  [2] Disable / Delete Auto Sleep & Wake tasks" -ForegroundColor Yellow
+        Write-Host "  [B] Back to main menu" -ForegroundColor DarkGray
+        $choice = Read-Host "Choose option (1, 2 / B = back)"
+        if ($choice -eq '1') {
+            if ($dryRun) { Log "  [dry] configure Auto Sleep/Wake"; continue }
+            powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKING 1 2>$null | Out-Null
+            powercfg /setactive SCHEME_CURRENT 2>$null | Out-Null
+            schtasks /create /tn "Lab_AutoSleep" /tr "powershell -Command Add-Type -Assembly System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState('Suspend', `$false, `$false)" /sc weekly /d MON,TUE,WED,THU,FRI /st 16:40 /ru "SYSTEM" /f 2>$null | Out-Null
+            $act = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c ping 1.1.1.1 -n 1'
+            $trg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '08:20'
+            $set = New-ScheduledTaskSettingsSet -WakeToRun
+            Register-ScheduledTask -TaskName 'Lab_AutoWake' -Action $act -Trigger $trg -Settings $set -User 'SYSTEM' -Force | Out-Null
+            Log "Auto Sleep (16:40) & Wake (08:20) configured." 'Green'
+        } elseif ($choice -eq '2') {
+            if ($dryRun) { Log "  [dry] remove Auto Sleep/Wake tasks"; continue }
+            schtasks /delete /tn "Lab_AutoSleep" /f 2>$null | Out-Null
+            schtasks /delete /tn "Lab_AutoWake" /f 2>$null | Out-Null
+            Log "Auto Sleep/Wake disabled (scheduled tasks removed)." 'Green'
+        } else {
+            Log "Auto Sleep/Wake: cancelled (no change)." 'Yellow'
+        }
     }
 
     # ============ Activate (university KMS, volume license) ============
