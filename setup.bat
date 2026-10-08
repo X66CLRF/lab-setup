@@ -64,7 +64,7 @@ if exist "%~dp0lab.ps1" (
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0lab.ps1"
 ) else (
     echo [i] Fetching online script from main branch...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; (Invoke-WebRequest 'https://raw.githubusercontent.com/X66CLRF/lab-setup/main/lab.ps1' -UseBasicParsing).Content | iex"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; $env:LAB_CONFIG='https://raw.githubusercontent.com/X66CLRF/lab-setup/main/config.json'; (Invoke-WebRequest 'https://raw.githubusercontent.com/X66CLRF/lab-setup/main/lab.ps1' -UseBasicParsing).Content | iex"
 )
 
 echo.
