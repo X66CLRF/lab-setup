@@ -44,18 +44,20 @@ cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
   [5] Check network status (VPN, KMS, share ports)
   [6] Wallpaper (Set & Lock / Unlock)
   [7] Auto Wake/Sleep schedule (08:20 / 16:40)
+  [8] Campus Internet KeepAlive (ล็อกอินเน็ตอัตโนมัติเบื้องหลัง - ตัวเลือกเฉพาะเครื่อง)
 ```
 
-In every sub-list: numbers like `1,3`, or Enter = all.
+In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = all, or `R` to re-select.
 
 | Task | What it does |
 |---|---|
 | Cleanup | Every user: Downloads & Desktop files/folders moved to Recycle Bin for safe recovery (shortcuts `.lnk`/`.url` kept), user Temp cleared; data drives in `config.json` (asks `YES` per drive) |
 | BrowserClean | Chrome/Edge: delete extra profiles (Profile 1, 2...), keep Default; clear its logins, cookies, history, sessions, cache (bookmarks/extensions kept) |
 | RemoveApps | Silent-uninstall adware / 3rd-party antivirus (Defender takes over) |
-| Install | Install/update packages from `\\192.168.0.72\LabDeploy\manifest.json`. Automatically activates Office KMS and configures SPSS license server upon install. |
+| Install | Install/update packages from `\\192.168.0.72\LabDeploy\manifest.json`. Multi-selection with ranges/re-select loop, 100% silent install (`/qn /norestart`), automatically activates Office KMS and configures SPSS license server upon install. |
 | Winget | Install/upgrade latest WinRAR, Foxit Reader via winget |
 | LicenseCheck | Inspect Windows, Office, and SPSS license health (licensed, days remaining, KMS, DaemonHost). Prompts to auto-fix/renew if any license is expired or missing. |
+| KeepAlive | Optional background daemon for campus LAN captive portal. Runs 100% headless (zero console window) as SYSTEM task, reads credentials from `\\192.168.0.72\LabDeploy\net-auth.env` or local cache. |
 | Fonts | Thai fonts from share `fonts\` or local/online fallback for all users |
 | Certs | Trusted Root import, thumbprint allowlist only |
 | WinRARTheme | WinRAR theme for all users |

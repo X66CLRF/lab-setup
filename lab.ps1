@@ -1,11 +1,11 @@
-# lab.ps1 - Lab PC setup (Windows 11 Pro)
+﻿# lab.ps1 - Lab PC setup (Windows 11 Pro)
 # Run in PowerShell as Administrator (short bootstrap, verifies this file's SHA256):
 #   irm x66clrf.github.io/lab-setup/go.txt | iex
 # Direct:
 #   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
-#   Tasks: Cleanup BrowserClean RemoveApps Tune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch SpssLicense Check Unlock AutoSleep
+#   Tasks: Cleanup BrowserClean RemoveApps Tune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch SpssLicense Check Unlock AutoSleep KeepAlive
 # Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
 
 # Folder of this script when run as a file (run.cmd on the share); empty for irm|iex
@@ -26,6 +26,7 @@ function Invoke-LabSetup {
         'Check network status (VPN gateways, KMS, share ports)'         = @('Check')
         'Wallpaper (Set & Lock / Unlock)'                               = @('Wallpaper')
         'Auto Wake/Sleep schedule (08:20 / 16:40)'                      = @('AutoSleep')
+        'Campus Internet KeepAlive (ล็อกอินเน็ตอัตโนมัติเบื้องหลัง - ตัวเลือกเฉพาะเครื่อง)' = @('KeepAlive')
     }
     $subMenus = @{
         'Optimize' = @('Cleanup', 'BrowserClean', 'RemoveApps', 'Tune')
@@ -66,15 +67,37 @@ function Invoke-LabSetup {
         Log "STOP: $env:COMPUTERNAME not match allowedHostPattern '$($cfg.allowedHostPattern)'" 'Red'; $global:LabExitCode = 1; return
     }
 
+    function Parse-IndexList($inputStr, $maxCount) {
+        if (-not $inputStr -or $inputStr.Trim() -eq '' -or $inputStr.Trim() -eq '0') { return 1..$maxCount }
+        $indices = [System.Collections.Generic.List[int]]::new()
+        $parts = $inputStr -split '[,\s]+' | Where-Object { $_ }
+        foreach ($part in $parts) {
+            if ($part -match '^(\d+)-(\d+)$') {
+                $start = [int]$matches[1]; $end = [int]$matches[2]
+                if ($start -le $end) {
+                    foreach ($idx in $start..$end) {
+                        if ($idx -ge 1 -and $idx -le $maxCount -and -not $indices.Contains($idx)) { $indices.Add($idx) }
+                    }
+                }
+            } elseif ($part -match '^\d+$') {
+                $idx = [int]$part
+                if ($idx -ge 1 -and $idx -le $maxCount -and -not $indices.Contains($idx)) { $indices.Add($idx) }
+            }
+        }
+        return $indices
+    }
+
     function Read-Pick($items, $title) {
         # returns selected items; Enter/0 = all; B = back to main menu
         Write-Host "`n--- $title ---" -ForegroundColor Cyan
         for ($i = 0; $i -lt $items.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $items[$i]) }
         Write-Host '  [B] Back to main menu' -ForegroundColor DarkGray
-        $s = Read-Host 'Choose (e.g. 1,3 / Enter = all / B = back)'
+        $s = Read-Host 'Choose (e.g. 1,3,5 or 1-3 / Enter = all / B = back)'
         if ($s -eq 'b' -or $s -eq 'B') { return $null }
         if ($s -notmatch '\d') { return $items }
-        $s -split '[,\s]+' | Where-Object { $_ -match '^\d+$' -and [int]$_ -ge 1 -and [int]$_ -le $items.Count } | ForEach-Object { $items[[int]$_ - 1] }
+        $indices = Parse-IndexList $s $items.Count
+        if ($indices.Count -eq 0) { return $null }
+        $indices | ForEach-Object { $items[$_ - 1] }
     }
 
     # --- helpers ---
@@ -411,11 +434,50 @@ function Invoke-LabSetup {
             $items += [pscustomobject]@{ Kind = 'winget'; Ref = $id; Label = ("{0,-48} {1}" -f $id, 'winget (latest)') }
         }
         if (-not $shareOk) { Write-Host '  (share not connected - only winget apps listed)' -ForegroundColor Yellow }
-        $chosen = @(Read-Pick @($items | ForEach-Object Label) 'Install software')
-        $sel = @($items | Where-Object { $chosen -contains $_.Label })
-        $pkgs      = @($sel | Where-Object Kind -eq 'pkg'    | ForEach-Object Ref)
-        $wingetSel = @($sel | Where-Object Kind -eq 'winget' | ForEach-Object Ref)
-        Log "Selected: $((@($pkgs | ForEach-Object name) + $wingetSel) -join ', ')"
+
+        $selectionConfirmed = $false
+        while (-not $selectionConfirmed) {
+            Write-Host "`n--- Install Software (Silent Mode) ---" -ForegroundColor Cyan
+            for ($i = 0; $i -lt $items.Count; $i++) {
+                Write-Host ("  [{0}] {1}" -f ($i + 1), $items[$i].Label)
+            }
+            Write-Host '  [B] Back to main menu' -ForegroundColor DarkGray
+            Write-Host 'Tip: Choose multiple via comma/range (e.g. 1,3,5 or 1-4 / Enter = all)' -ForegroundColor Gray
+            $rawPick = Read-Host 'Choose programs'
+            if ($rawPick -eq 'b' -or $rawPick -eq 'B') {
+                Log 'Install cancelled: back to main menu.' 'Yellow'
+                $tasks = @()
+                break
+            }
+            $indices = Parse-IndexList $rawPick $items.Count
+            if ($indices.Count -eq 0) {
+                Write-Host 'No programs selected. Please try again.' -ForegroundColor Yellow
+                continue
+            }
+            $chosenItems = @($indices | ForEach-Object { $items[$_ - 1] })
+            Write-Host "`nSelected to install ($($chosenItems.Count) programs):" -ForegroundColor Green
+            foreach ($ci in $chosenItems) {
+                $nameStr = if ($ci.Kind -eq 'pkg') { $ci.Ref.name } else { $ci.Ref }
+                Write-Host "  * $nameStr" -ForegroundColor White
+            }
+            Write-Host ''
+            $confirm = Read-Host 'Press [Enter] to start silent install, [R] to re-select, [B] to cancel'
+            if ($confirm -eq 'b' -or $confirm -eq 'B') {
+                Log 'Install cancelled: back to main menu.' 'Yellow'
+                $tasks = @()
+                break
+            }
+            if ($confirm -eq 'r' -or $confirm -eq 'R') {
+                continue
+            }
+            # Confirmed
+            $sel = $chosenItems
+            $pkgs      = @($sel | Where-Object Kind -eq 'pkg'    | ForEach-Object Ref)
+            $wingetSel = @($sel | Where-Object Kind -eq 'winget' | ForEach-Object Ref)
+            Log "Selected: $((@($pkgs | ForEach-Object name) + $wingetSel) -join ', ')"
+            $selectionConfirmed = $true
+        }
+        if (-not $selectionConfirmed) { continue }
     }
 
     # ============ Install / Update ============
@@ -478,21 +540,32 @@ function Invoke-LabSetup {
                 if ($pkg.notice -or $noticeText) {
                     Write-Host ''
                     Write-Host ('=' * 60) -ForegroundColor Yellow
-                    Write-Host "  ACTION NEEDED - $($pkg.name)" -ForegroundColor Yellow
+                    Write-Host "  INFO - $($pkg.name)" -ForegroundColor Yellow
                     foreach ($ln in @($pkg.notice)) { if ($ln) { Write-Host "  $ln" -ForegroundColor Yellow } }
                     if ($noticeText) {
                         Write-Host ''
                         foreach ($ln in $noticeText -split "`r?`n") { Write-Host "    $ln" -ForegroundColor White }
-                        try { Set-Clipboard -Value $noticeText; Write-Host '  (copied to clipboard - press Ctrl+V in the installer)' -ForegroundColor Yellow } catch {}
+                        try { Set-Clipboard -Value $noticeText; Write-Host '  (copied to clipboard)' -ForegroundColor Yellow } catch {}
                     }
                     Write-Host ('=' * 60) -ForegroundColor Yellow
-                    Log "$tag notice shown"
-                    if ($interactive) { [void](Read-Host 'Press Enter to start the installer') }
+                    Log "$tag notice noted"
                 }
                 $a = [string]$pkg.args
-                if ($dst -like '*.msi') { $p = Start-Process msiexec.exe -ArgumentList "/i `"$dst`" $a" -WorkingDirectory $workDir -Wait -PassThru }
-                elseif ($a)             { $p = Start-Process $dst -ArgumentList $a -WorkingDirectory $workDir -Wait -PassThru }
-                else                    { $p = Start-Process $dst -WorkingDirectory $workDir -Wait -PassThru }
+                if ($dst -like '*.msi') {
+                    if ($a -notmatch '/q[n|b|r|f]?' -and $a -notmatch '/quiet') {
+                        $a = ($a + ' /qn /norestart').Trim()
+                    }
+                    Log "$tag Running silent MSI: msiexec.exe /i `"$dst`" $a"
+                    $p = Start-Process msiexec.exe -ArgumentList "/i `"$dst`" $a" -WorkingDirectory $workDir -Wait -PassThru
+                }
+                elseif ($a) {
+                    Log "$tag Running silent installer: $dst $a"
+                    $p = Start-Process $dst -ArgumentList $a -WorkingDirectory $workDir -Wait -PassThru
+                }
+                else {
+                    Log "$tag Running installer: $dst"
+                    $p = Start-Process $dst -WorkingDirectory $workDir -Wait -PassThru
+                }
                 $code = $p.ExitCode
                 if ($code -in 3010, 1641) { $needReboot = $true }
                 if ($code -in 0, 3010, 1641) { Log "$tag OK exit $code" 'Green' }
@@ -808,6 +881,188 @@ function Invoke-LabSetup {
             Log "Auto Wake/Sleep disabled (scheduled tasks removed)." 'Green'
         } else {
             Log "Auto Wake/Sleep: cancelled (no change)." 'Yellow'
+        }
+    }
+
+    # ============ Campus Internet KeepAlive (Optional background auto-auth) ============
+    if ($tasks -contains 'KeepAlive') {
+        Log '== Campus Internet KeepAlive ==' 'Cyan'
+        $taskName = 'NSRU-KeepAlive'
+        $netAuthDir = Join-Path $root 'net-auth'
+        if (-not (Test-Path $netAuthDir)) { New-Item -ItemType Directory -Force -Path $netAuthDir | Out-Null }
+        $localEnv = Join-Path $root 'net-auth.env'
+        $shareEnv = if ($shareOk) { Join-Path $share 'net-auth.env' } else { "\\$shareHost\LabDeploy\net-auth.env" }
+
+        $kaAction = if (-not $interactive) { '1' } else { $null }
+        if ($interactive -and -not $kaAction) {
+            $isTaskInstalled = (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -ne $null
+            $taskState = if ($isTaskInstalled) { (Get-ScheduledTask -TaskName $taskName).State } else { 'Not installed' }
+            $onlineNow = $false
+            try {
+                $sc = & curl.exe -s -k -m 4 -w "%{http_code}" -o NUL "http://clients3.google.com/generate_204" 2>$null
+                $onlineNow = ($sc -eq '204')
+            } catch {}
+
+            Write-Host "`n  Internet Status: " -NoNewline
+            if ($onlineNow) { Write-Host "ONLINE (Internet active)" -ForegroundColor Green }
+            else { Write-Host "OFFLINE (Captive portal / login required)" -ForegroundColor Yellow }
+            Write-Host "  Background Task ($taskName): " -NoNewline
+            if ($isTaskInstalled) { Write-Host "$taskState" -ForegroundColor Green }
+            else { Write-Host "Not installed" -ForegroundColor DarkGray }
+            Write-Host "  Credentials (net-auth.env): " -NoNewline
+            if (Test-Path $localEnv) { Write-Host "Found locally ($localEnv)" -ForegroundColor Green }
+            elseif (Test-Path $shareEnv) { Write-Host "Found on Server 72 ($shareEnv)" -ForegroundColor Green }
+            else { Write-Host "Not found" -ForegroundColor Yellow }
+            Write-Host ""
+
+            Write-Host "  [1] Enable & Start background KeepAlive (ติดตั้ง Task เบื้องหลัง 100% ไม่มีหน้าต่าง)" -ForegroundColor Cyan
+            Write-Host "  [2] Test login now (ทดสอบล็อกอิน 1 ครั้งทันที + แสดงผลลัพธ์)" -ForegroundColor Cyan
+            Write-Host "  [3] Disable & Remove KeepAlive task (ปิดการทำงาน / ถอนการติดตั้ง)" -ForegroundColor Yellow
+            Write-Host "  [4] Configure credentials in net-auth.env (ตั้งค่า user/password บน Server 72 หรือเครื่องนี้)" -ForegroundColor White
+            Write-Host "  [B] Back to main menu" -ForegroundColor DarkGray
+            $ansKa = Read-Host "Choose option (1-4 / B = back)"
+            if ($ansKa -in '1','2','3','4') { $kaAction = $ansKa }
+            else { Log "KeepAlive: cancelled (no change)." 'Yellow'; $kaAction = $null }
+        }
+
+        if ($kaAction -eq '4') {
+            Write-Host "`n--- Configure net-auth.env ---" -ForegroundColor Cyan
+            $uInput = Read-Host "NSRU Internet Username"
+            $pInput = Read-Host "NSRU Internet Password"
+            if ($uInput -and $pInput) {
+                $envContent = @"
+# NSRU Campus LAN Internet Authentication
+NSRU_USER=$uInput
+NSRU_PASS=$pInput
+PORTAL=https://login.nsru.ac.th:1000
+INTERVAL=90
+STOP_HOUR=-1
+"@
+                Set-Content -Path $localEnv -Value $envContent -Encoding UTF8
+                icacls $localEnv /inheritance:r /grant:r 'Administrators:(F)' 'SYSTEM:(F)' | Out-Null
+                Log "Saved credentials locally to $localEnv (secured: Admins & SYSTEM only)" 'Green'
+                if ($shareOk) {
+                    $saveToShare = Read-Host "Save to Server 72 share ($shareEnv) for other lab PCs? [Y/n]"
+                    if ($saveToShare -ne 'n' -and $saveToShare -ne 'N') {
+                        try {
+                            Copy-Item $localEnv $shareEnv -Force -ErrorAction Stop
+                            Log "Copied net-auth.env to Server 72 share: $shareEnv" 'Green'
+                        } catch { Log "FAIL write to share: $($_.Exception.Message)" 'Yellow' }
+                    }
+                }
+            } else { Log "Credentials not entered. Cancelled." 'Yellow' }
+        }
+
+        if ($kaAction -in '1', '2') {
+            # Ensure local env exists (fetch from 72 if missing)
+            if (-not (Test-Path $localEnv)) {
+                if (Test-Path $shareEnv) {
+                    try {
+                        Copy-Item $shareEnv $localEnv -Force
+                        icacls $localEnv /inheritance:r /grant:r 'Administrators:(F)' 'SYSTEM:(F)' | Out-Null
+                        Log "Fetched net-auth.env from Server 72 -> $localEnv" 'Green'
+                    } catch { Log "FAIL copy net-auth.env from share: $($_.Exception.Message)" 'Yellow' }
+                }
+            }
+            if (-not (Test-Path $localEnv)) {
+                Write-Host "`nCredentials not found. Please enter NSRU internet credentials:" -ForegroundColor Yellow
+                $uInput = Read-Host "NSRU Internet Username"
+                $pInput = Read-Host "NSRU Internet Password"
+                if ($uInput -and $pInput) {
+                    $envContent = @"
+# NSRU Campus LAN Internet Authentication
+NSRU_USER=$uInput
+NSRU_PASS=$pInput
+PORTAL=https://login.nsru.ac.th:1000
+INTERVAL=90
+STOP_HOUR=-1
+"@
+                    Set-Content -Path $localEnv -Value $envContent -Encoding UTF8
+                    icacls $localEnv /inheritance:r /grant:r 'Administrators:(F)' 'SYSTEM:(F)' | Out-Null
+                    Log "Saved credentials to $localEnv" 'Green'
+                    if ($shareOk) {
+                        try { Copy-Item $localEnv $shareEnv -Force -ErrorAction SilentlyContinue; Log "Also saved to Server 72: $shareEnv" 'Green' } catch {}
+                    }
+                } else {
+                    Log "FAIL: Cannot proceed without credentials." 'Red'
+                    $kaAction = $null
+                }
+            }
+        }
+
+        # Deploy KeepAlive files to C:\ProgramData\LabDeploy\net-auth\
+        if ($kaAction -in '1', '2') {
+            $srcKaPs1 = if ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'net-auth\KeepAlive.ps1'))) { Join-Path $LabScriptDir 'net-auth\KeepAlive.ps1' }
+                        elseif ($shareOk -and (Test-Path (Join-Path $share 'net-auth\KeepAlive.ps1'))) { Join-Path $share 'net-auth\KeepAlive.ps1' }
+                        else { $null }
+            $srcLaunchVbs = if ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'net-auth\launch.vbs'))) { Join-Path $LabScriptDir 'net-auth\launch.vbs' }
+                            elseif ($shareOk -and (Test-Path (Join-Path $share 'net-auth\launch.vbs'))) { Join-Path $share 'net-auth\launch.vbs' }
+                            else { $null }
+
+            $dstKaPs1 = Join-Path $netAuthDir 'KeepAlive.ps1'
+            $dstLaunchVbs = Join-Path $netAuthDir 'launch.vbs'
+
+            if ($srcKaPs1 -and (Test-Path $srcKaPs1)) { Copy-Item $srcKaPs1 $dstKaPs1 -Force }
+            if ($srcLaunchVbs -and (Test-Path $srcLaunchVbs)) { Copy-Item $srcLaunchVbs $dstLaunchVbs -Force }
+            # Fallback if downloaded directly from GitHub/URL
+            if (-not (Test-Path $dstKaPs1)) {
+                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/net-auth/KeepAlive.ps1"
+                try { Invoke-WebRequest $kaUrl -OutFile $dstKaPs1 -UseBasicParsing -TimeoutSec 10 } catch {}
+            }
+            if (-not (Test-Path $dstLaunchVbs)) {
+                $vbsContent = @'
+Set WshShell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
+psScript = scriptDir & "\KeepAlive.ps1"
+If fso.FileExists(psScript) Then
+    cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & psScript & """"
+    WshShell.Run cmd, 0, False
+End If
+'@
+                Set-Content -Path $dstLaunchVbs -Value $vbsContent -Encoding ASCII
+            }
+        }
+
+        if ($kaAction -eq '2') {
+            Log "Testing KeepAlive login once..." 'Cyan'
+            $kaScript = Join-Path $netAuthDir 'KeepAlive.ps1'
+            if (Test-Path $kaScript) {
+                & powershell.exe -ExecutionPolicy Bypass -File $kaScript -Once
+                if ($LASTEXITCODE -eq 0) { Log "KeepAlive test login: SUCCESS (Online)" 'Green' }
+                else { Log "KeepAlive test login: Finished. (Check if captive portal required / credentials valid)" 'Yellow' }
+            } else { Log "FAIL: KeepAlive.ps1 not found in $netAuthDir" 'Red' }
+        }
+
+        if ($kaAction -eq '1') {
+            Log "Registering background Scheduled Task '$taskName'..." 'Cyan'
+            $vbsPath = Join-Path $netAuthDir 'launch.vbs'
+            $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //Nologo `"$vbsPath`""
+            $trigStartup = New-ScheduledTaskTrigger -AtStartup
+            $trigLogon   = New-ScheduledTaskTrigger -AtLogOn
+            $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+
+            try {
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+                Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($trigStartup, $trigLogon) -Principal $principal -Settings $settings -Force | Out-Null
+                Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+                Log "KeepAlive task '$taskName' installed & started successfully (100% hidden background, runs as SYSTEM on boot/logon)." 'Green'
+            } catch {
+                Log "FAIL register task: $($_.Exception.Message)" 'Red'
+            }
+        }
+
+        if ($kaAction -eq '3') {
+            Log "Removing KeepAlive task '$taskName'..." 'Cyan'
+            try {
+                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop | Out-Null
+                Log "Task '$taskName' removed." 'Green'
+            } catch {
+                Log "Task '$taskName' not found or already removed." 'Yellow'
+            }
+            Get-Process powershell -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*KeepAlive.ps1*' } | Stop-Process -Force -ErrorAction SilentlyContinue
         }
     }
 

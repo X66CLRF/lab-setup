@@ -4,12 +4,13 @@
 param([Parameter(Mandatory)][string]$Tag, [string]$User = 'X66CLRF', [string]$Repo = 'lab-setup')
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-$utf8 = New-Object Text.UTF8Encoding $false
+$utf8Bom   = New-Object Text.UTF8Encoding $true
+$utf8NoBom = New-Object Text.UTF8Encoding $false
 
 # 1. point lab.ps1 (comments + config URL) at the new tag
 $lab = [IO.File]::ReadAllText("$PSScriptRoot\lab.ps1")
 $lab = $lab -replace "(raw\.githubusercontent\.com/$User/$Repo/)[^/]+/", "`${1}$Tag/"
-[IO.File]::WriteAllText("$PSScriptRoot\lab.ps1", $lab, $utf8)
+[IO.File]::WriteAllText("$PSScriptRoot\lab.ps1", $lab, $utf8Bom)
 
 # 2. hash exactly what GitHub will serve (the committed blob, LF line endings)
 git add lab.ps1 | Out-Null
@@ -30,8 +31,8 @@ $go = @"
 if (`$got -ne `$h) { Write-Host "STOP: lab.ps1 hash mismatch (`$got). Not running." -ForegroundColor Red; return }
 Invoke-Expression ([Text.Encoding]::UTF8.GetString(`$b).TrimStart([char]0xFEFF))
 "@
-[IO.File]::WriteAllText("$PSScriptRoot\go.txt", ($go -replace "`r`n", "`n"), $utf8)
-if (-not (Test-Path "$PSScriptRoot\.nojekyll")) { [IO.File]::WriteAllText("$PSScriptRoot\.nojekyll", '', $utf8) }
+[IO.File]::WriteAllText("$PSScriptRoot\go.txt", ($go -replace "`r`n", "`n"), $utf8NoBom)
+if (-not (Test-Path "$PSScriptRoot\.nojekyll")) { [IO.File]::WriteAllText("$PSScriptRoot\.nojekyll", '', $utf8NoBom) }
 git add lab.ps1 go.txt .nojekyll | Out-Null
 
 Write-Host "Tag $Tag  lab.ps1 SHA256 $hash"

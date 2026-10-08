@@ -1,8 +1,10 @@
-﻿# ห้าม commit ไฟล์ติดตั้ง / license / manifest จริง
+# ห้าม commit ไฟล์ติดตั้ง / license / manifest จริง
 manifest.json
 *.msi
 *.exe
 *.lic
 *.ovpn
 *.conf
+*.env
+*.secure
 wallpaper/
