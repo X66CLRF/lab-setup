@@ -132,6 +132,7 @@ function Invoke-LabSetup {
 
     $interactive = -not $env:LAB_TASKS
     while ($true) {
+        $global:LabExitCode = 0
         $tasks = @()
         if ($interactive) {
             Write-Host "`n=== Lab Setup ===" -ForegroundColor Cyan
@@ -822,13 +823,15 @@ function Invoke-LabSetup {
     }
 
     if ($shareDrive) { Remove-PSDrive -Name LabDeploy -Force -ErrorAction SilentlyContinue; Log 'share disconnected' }
-    Log "Done (exit $global:LabExitCode). Log: $logFile" $(if ($global:LabExitCode) { 'Red' } else { 'Green' })
+    $statusLabel = if ($interactive) { "Task finished (code $global:LabExitCode)" } else { "Done (exit $global:LabExitCode)" }
+    Log "$statusLabel. Log: $logFile" $(if ($global:LabExitCode) { 'Yellow' } else { 'Green' })
 
         if ($interactive) {
             Write-Host ""
             Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
-            Write-Host "Task completed. Press Enter to return to main menu..." -ForegroundColor Cyan
-            [void](Read-Host)
+            Write-Host "Press Enter to return to main menu (or Q to Quit)..." -ForegroundColor Cyan
+            $ans = Read-Host
+            if ($ans -eq 'q' -or $ans -eq 'Q') { break }
         } else {
             break
         }
