@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title NSRU Lab Setup & SPSS
+title NSRU Lab Setup - SPSS
 
 :: 1. ตรวจสอบและขอสิทธิ์ Administrator อัตโนมัติ
 net session >nul 2>&1
@@ -29,7 +29,7 @@ echo [OK] Internet connected.
 
 :: 3. ตรวจสอบเครือข่ายภายใน (Share 192.168.0.72 หรือ SPSS License 192.168.3.10)
 echo [2/4] Checking campus network reachability...
-powershell -NoProfile -Command "if (-not (Test-NetConnection 192.168.0.72 -Port 445 -InformationLevel Quiet -WarningAction SilentlyContinue)) { exit 1 }"
+powershell -NoProfile -Command "$t = New-Object Net.Sockets.TcpClient; $a = $t.BeginConnect('192.168.0.72', 445, $null, $null); if (-not $a.AsyncWaitHandle.WaitOne(1500)) { $t.Close(); exit 1 } else { $t.EndConnect($a); $t.Close(); exit 0 }"
 if %errorlevel% neq 0 (
     echo.
     echo [!] Cannot reach campus share (192.168.0.72:445).
