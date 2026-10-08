@@ -50,7 +50,7 @@ In every sub-list: numbers like `1,3`, or Enter = all.
 
 | Task | What it does |
 |---|---|
-| Cleanup | Every user: Downloads emptied, Desktop files/folders deleted (shortcuts `.lnk`/`.url` kept), user Temp, Recycle Bin; data drives in `config.json` (asks `YES` per drive) |
+| Cleanup | Every user: Downloads & Desktop files/folders moved to Recycle Bin for safe recovery (shortcuts `.lnk`/`.url` kept), user Temp cleared; data drives in `config.json` (asks `YES` per drive) |
 | BrowserClean | Chrome/Edge: delete extra profiles (Profile 1, 2...), keep Default; clear its logins, cookies, history, sessions, cache (bookmarks/extensions kept) |
 | RemoveApps | Silent-uninstall adware / 3rd-party antivirus (Defender takes over) |
 | Install | Install/update packages from `\\192.168.0.72\LabDeploy\manifest.json`. Automatically activates Office KMS and configures SPSS license server upon install. |

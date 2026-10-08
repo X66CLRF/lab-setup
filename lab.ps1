@@ -110,10 +110,24 @@ function Invoke-LabSetup {
         if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
         New-ItemProperty -Path $key -Name $name -Value $value -PropertyType $type -Force | Out-Null
     }
+    Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
     function Remove-Path($p) {
-        if ($dryRun) { Log "  [dry] delete $p"; return }
-        try { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop; Log "  deleted $p" }
-        catch { Log "  FAIL $p : $($_.Exception.Message)" 'Yellow' }
+        if ($dryRun) { Log "  [dry] recycle $p"; return }
+        try {
+            if (Test-Path -LiteralPath $p -PathType Container) {
+                [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin')
+            } else {
+                [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin')
+            }
+            Log "  moved to recycle bin: $p"
+        } catch {
+            try {
+                Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop
+                Log "  deleted $p"
+            } catch {
+                Log "  FAIL $p : $($_.Exception.Message)" 'Yellow'
+            }
+        }
     }
     function Clear-Tree($dir, $exclusions) {
         # Delete contents of $dir, keep excluded paths (and their parents)
@@ -222,7 +236,7 @@ function Invoke-LabSetup {
             $ut = "$($u.FullName)\AppData\Local\Temp"
             if (Test-Path $ut) { Get-ChildItem $ut -Force -ErrorAction SilentlyContinue | ForEach-Object { if (-not $dryRun) { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue } } }
         }
-        if (-not $dryRun) { Clear-RecycleBin -Force -ErrorAction SilentlyContinue; Log 'Recycle Bin emptied' }
+        Log 'Cleanup finished: removed files are kept in Recycle Bin for safe recovery' 'Green'
     }
 
     # ============ BrowserClean: keep only the main profile, clear its private data ============
