@@ -30,31 +30,6 @@ function Invoke-LabSetup {
         'Optimize' = @('Cleanup', 'BrowserClean', 'RemoveApps', 'Tune')
         'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'Wallpaper', 'BrowserSearch', 'SpssLicense')
     }
-    function Read-Pick($items, $title) {
-        # returns selected items; Enter/0 = all
-        Write-Host "`n--- $title ---" -ForegroundColor Cyan
-        for ($i = 0; $i -lt $items.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $items[$i]) }
-        $s = Read-Host 'Choose (e.g. 1,3 / Enter = all)'
-        if ($s -notmatch '\d') { return $items }
-        $s -split '[,\s]+' | Where-Object { $_ -match '^\d+$' -and [int]$_ -ge 1 -and [int]$_ -le $items.Count } | ForEach-Object { $items[[int]$_ - 1] }
-    }
-    $interactive = -not $env:LAB_TASKS
-    if (-not $interactive) { $tasks = $env:LAB_TASKS -split ',' | ForEach-Object { $_.Trim() } }
-    else {
-        Write-Host "`n=== Lab Setup ===" -ForegroundColor Cyan
-        $gNames = @($groups.Keys)
-        for ($i = 0; $i -lt $gNames.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $gNames[$i]) }
-        Write-Host '  [Q] Quit'
-        $pick = Read-Host 'Choose'
-        if ($pick -notmatch '^\s*\d+\s*$' -or [int]$pick -lt 1 -or [int]$pick -gt $gNames.Count) { return }
-        $tasks = @()
-        foreach ($t in $groups[$gNames[[int]$pick - 1]]) {
-            if ($subMenus.ContainsKey($t)) { $tasks += @(Read-Pick $subMenus[$t] $gNames[[int]$pick - 1]) } else { $tasks += $t }
-        }
-        if (-not $tasks) { Write-Host 'Nothing selected.'; return }
-    }
-    $pickPackages = $interactive -and ($tasks -contains 'Install')   # per-program selection happens after the share connects
-
     # --- admin check ---
     $id = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if (-not $id.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -70,7 +45,6 @@ function Invoke-LabSetup {
         Add-Content -Path $logFile -Value $line -Encoding UTF8
     }
 
-    Log "Tasks: $($tasks -join ', ')  DryRun: $dryRun" 'Cyan'
     # config source: $env:LAB_CONFIG path > config.json next to this script (run.cmd on the share) > GitHub tag
     $cfgPath = if ($env:LAB_CONFIG) { $env:LAB_CONFIG }
                elseif ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'config.json'))) { Join-Path $LabScriptDir 'config.json' }
@@ -81,6 +55,17 @@ function Invoke-LabSetup {
     # --- safety guard: only lab machines (skip if wildcard or not set) ---
     if ($cfg.allowedHostPattern -and $cfg.allowedHostPattern -ne '.*' -and ($env:COMPUTERNAME -notmatch $cfg.allowedHostPattern)) {
         Log "STOP: $env:COMPUTERNAME not match allowedHostPattern '$($cfg.allowedHostPattern)'" 'Red'; $global:LabExitCode = 1; return
+    }
+
+    function Read-Pick($items, $title) {
+        # returns selected items; Enter/0 = all; B = back to main menu
+        Write-Host "`n--- $title ---" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $items.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $items[$i]) }
+        Write-Host '  [B] Back to main menu' -ForegroundColor DarkGray
+        $s = Read-Host 'Choose (e.g. 1,3 / Enter = all / B = back)'
+        if ($s -eq 'b' -or $s -eq 'B') { return $null }
+        if ($s -notmatch '\d') { return $items }
+        $s -split '[,\s]+' | Where-Object { $_ -match '^\d+$' -and [int]$_ -ge 1 -and [int]$_ -le $items.Count } | ForEach-Object { $items[[int]$_ - 1] }
     }
 
     # --- helpers ---
@@ -136,6 +121,42 @@ function Invoke-LabSetup {
                 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
         Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like $pattern }
     }
+
+    $interactive = -not $env:LAB_TASKS
+    while ($true) {
+        $tasks = @()
+        if ($interactive) {
+            Write-Host "`n=== Lab Setup ===" -ForegroundColor Cyan
+            $tClient = New-Object Net.Sockets.TcpClient
+            $ar = $tClient.BeginConnect('192.168.0.72', 445, $null, $null)
+            $isShareOk = $ar.AsyncWaitHandle.WaitOne(800)
+            $tClient.Close()
+            $netStatus = if ($isShareOk) { "[CONNECTED]" } else { "[OFFLINE / VPN NEEDED]" }
+            $netCol = if ($isShareOk) { 'Green' } else { 'Yellow' }
+            Write-Host "  Campus Share (192.168.0.72): " -NoNewline -ForegroundColor DarkGray
+            Write-Host "$netStatus" -ForegroundColor $netCol
+            Write-Host ""
+
+            $gNames = @($groups.Keys)
+            for ($i = 0; $i -lt $gNames.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $gNames[$i]) }
+            Write-Host '  [Q] Quit / Exit' -ForegroundColor DarkGray
+            $pick = Read-Host 'Choose'
+            if ($pick -eq 'q' -or $pick -eq 'Q') { break }
+            if ($pick -notmatch '^\s*\d+\s*$' -or [int]$pick -lt 1 -or [int]$pick -gt $gNames.Count) { continue }
+            $chosenGroup = $gNames[[int]$pick - 1]
+            foreach ($t in $groups[$chosenGroup]) {
+                if ($subMenus.ContainsKey($t)) {
+                    $picked = Read-Pick $subMenus[$t] $chosenGroup
+                    if ($null -eq $picked) { $tasks = @(); break }
+                    $tasks += @($picked)
+                } else { $tasks += $t }
+            }
+            if (-not $tasks) { continue }
+        } else {
+            $tasks = $env:LAB_TASKS -split ',' | ForEach-Object { $_.Trim() }
+        }
+        $pickPackages = $interactive -and ($tasks -contains 'Install')
+        Log "Tasks: $($tasks -join ', ')  DryRun: $dryRun" 'Cyan'
 
     # ============ Cleanup ============
     if ($tasks -contains 'Cleanup' -and $cfg.cleanup.enabled) {
@@ -715,6 +736,16 @@ function Invoke-LabSetup {
 
     if ($shareDrive) { Remove-PSDrive -Name LabDeploy -Force -ErrorAction SilentlyContinue; Log 'share disconnected' }
     Log "Done (exit $global:LabExitCode). Log: $logFile" $(if ($global:LabExitCode) { 'Red' } else { 'Green' })
+
+        if ($interactive) {
+            Write-Host ""
+            Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
+            Write-Host "Task completed. Press Enter to return to main menu..." -ForegroundColor Cyan
+            [void](Read-Host)
+        } else {
+            break
+        }
+    }
 }
 
 # Exit codes: 0 ok, 1 not admin/config/host guard, 2 share connect, 3 manifest, 4 package failed, 5 activation failed
