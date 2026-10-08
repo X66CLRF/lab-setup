@@ -11,8 +11,8 @@
 # Folder of this script when run as a file (run.cmd on the share); empty for irm|iex
 $LabScriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent }
 
-# Pin to a tag/commit, never 'main'
-$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/config.json'
+# Pin to main
+$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/main/config.json'
 
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'

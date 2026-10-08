@@ -33,24 +33,7 @@ echo [2/4] Checking campus network reachability...
 powershell -NoProfile -Command "$t = New-Object Net.Sockets.TcpClient; $a = $t.BeginConnect('192.168.0.72', 445, $null, $null); if (-not $a.AsyncWaitHandle.WaitOne(1500)) { $t.Close(); exit 1 } else { $t.EndConnect($a); $t.Close(); exit 0 }"
 if %errorlevel% neq 0 (
     echo [i] Outside campus network - cannot reach 192.168.0.72:445 directly.
-    echo Checking FortiClient VPN...
-    
-    set "FORTI_CLI=%ProgramFiles%\Fortinet\FortiClient\FortiSSLVPNcli.exe"
-    set "FORTI_GUI=%ProgramFiles%\Fortinet\FortiClient\FortiClient.exe"
-    if not exist "!FORTI_CLI!" set "FORTI_CLI=%ProgramFiles(x86)%\Fortinet\FortiClient\FortiSSLVPNcli.exe"
-    if not exist "!FORTI_GUI!" set "FORTI_GUI=%ProgramFiles(x86)%\Fortinet\FortiClient\FortiClient.exe"
-
-    if exist "!FORTI_CLI!" (
-        echo [i] Found FortiClient CLI.
-        set /p VPN_USER="Enter your NSRU account: "
-        echo Connecting to gwspss.nsru.ac.th:10443...
-        "!FORTI_CLI!" connect -s gwspss.nsru.ac.th:10443 -u !VPN_USER!
-    ) else if exist "!FORTI_GUI!" (
-        echo [i] Launching FortiClient... Please connect to SPSS VPN gwspss.nsru.ac.th
-        start "" "!FORTI_GUI!"
-    ) else (
-        echo [i] FortiClient not found. Will use Standalone mode.
-    )
+    echo [i] Note: Connect FortiClient VPN manually if campus share is needed.
 ) else (
     echo [OK] Campus network reachable.
 )
@@ -75,13 +58,13 @@ echo.
 echo [4/4] Starting Lab Setup...
 copy /y "%~f0" "%DEPLOY_DIR%\setup.bat" >nul 2>&1
 
-:: เลือกรัน: ถ้ามี lab.ps1 อยู่ข้างๆ ให้รันจากไฟล์ตรง ถ้าไม่มีให้ดึงออนไลน์
+:: เลือกรัน: ถ้ามี lab.ps1 อยู่ข้างๆ ให้รันจากไฟล์ตรง ถ้าไม่มีให้ดึงออนไลน์จาก main
 if exist "%~dp0lab.ps1" (
     echo [i] Running local lab.ps1...
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0lab.ps1"
 ) else (
-    echo [i] Fetching online script...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; try { $h='192.168.0.72'; if (Test-Path \"\\\\$h\\LabDeploy\\lab\\lab.ps1\") { irm x66clrf.github.io/lab-setup/lab | iex } else { irm x66clrf.github.io/lab-setup/go.txt | iex } } catch { irm x66clrf.github.io/lab-setup/go.txt | iex }"
+    echo [i] Fetching online script from main branch...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; (Invoke-WebRequest 'https://raw.githubusercontent.com/X66CLRF/lab-setup/main/lab.ps1' -UseBasicParsing).Content | iex"
 )
 
 echo.
