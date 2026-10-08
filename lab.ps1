@@ -45,11 +45,19 @@ function Invoke-LabSetup {
         Add-Content -Path $logFile -Value $line -Encoding UTF8
     }
 
-    # config source: $env:LAB_CONFIG path > config.json next to this script (run.cmd on the share) > GitHub tag
-    $cfgPath = if ($env:LAB_CONFIG) { $env:LAB_CONFIG }
+    # config source: local file path > URL > default LabConfigUrl
+    $cfgPath = if ($env:LAB_CONFIG -and (Test-Path $env:LAB_CONFIG)) { $env:LAB_CONFIG }
                elseif ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'config.json'))) { Join-Path $LabScriptDir 'config.json' }
-    try { $cfg = if ($cfgPath) { Log "config: $cfgPath"; Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json }
-                 else { Log "config: $LabConfigUrl"; Invoke-RestMethod -Uri $LabConfigUrl -UseBasicParsing } }
+    try {
+        $cfg = if ($cfgPath) {
+                   Log "config: $cfgPath"
+                   Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+               } else {
+                   $url = if ($env:LAB_CONFIG -and ($env:LAB_CONFIG -match '^https?://')) { $env:LAB_CONFIG } else { $LabConfigUrl }
+                   Log "config: $url"
+                   Invoke-RestMethod -Uri $url -UseBasicParsing
+               }
+    }
     catch { Log "FAIL load config: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 1; return }
 
     # --- safety guard: only lab machines (skip if wildcard or not set) ---
