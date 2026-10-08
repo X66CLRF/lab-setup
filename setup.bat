@@ -32,7 +32,7 @@ echo.
 echo [2/4] Checking campus network reachability...
 powershell -NoProfile -Command "$t = New-Object Net.Sockets.TcpClient; $a = $t.BeginConnect('192.168.0.72', 445, $null, $null); if (-not $a.AsyncWaitHandle.WaitOne(1500)) { $t.Close(); exit 1 } else { $t.EndConnect($a); $t.Close(); exit 0 }"
 if %errorlevel% neq 0 (
-    echo [i] Outside campus network (cannot reach 192.168.0.72:445 directly).
+    echo [i] Outside campus network - cannot reach 192.168.0.72:445 directly.
     echo Checking FortiClient VPN...
     
     set "FORTI_CLI=%ProgramFiles%\Fortinet\FortiClient\FortiSSLVPNcli.exe"
@@ -46,7 +46,7 @@ if %errorlevel% neq 0 (
         echo Connecting to gwspss.nsru.ac.th:10443...
         "!FORTI_CLI!" connect -s gwspss.nsru.ac.th:10443 -u !VPN_USER!
     ) else if exist "!FORTI_GUI!" (
-        echo [i] Launching FortiClient... Please connect to SPSS VPN (gwspss.nsru.ac.th).
+        echo [i] Launching FortiClient... Please connect to SPSS VPN gwspss.nsru.ac.th
         start "" "!FORTI_GUI!"
     ) else (
         echo [i] FortiClient not found. Will use Standalone mode.
@@ -86,6 +86,6 @@ if exist "%~dp0lab.ps1" (
 
 echo.
 echo ========================================================
-echo  Execution finished. (Press any key to exit)
+echo  Execution finished. Press any key to exit...
 echo ========================================================
 pause >nul
