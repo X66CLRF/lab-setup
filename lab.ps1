@@ -78,8 +78,8 @@ function Invoke-LabSetup {
                  else { Log "config: $LabConfigUrl"; Invoke-RestMethod -Uri $LabConfigUrl -UseBasicParsing } }
     catch { Log "FAIL load config: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 1; return }
 
-    # --- safety guard: only lab machines ---
-    if ($env:COMPUTERNAME -notmatch $cfg.allowedHostPattern) {
+    # --- safety guard: only lab machines (skip if wildcard or not set) ---
+    if ($cfg.allowedHostPattern -and $cfg.allowedHostPattern -ne '.*' -and ($env:COMPUTERNAME -notmatch $cfg.allowedHostPattern)) {
         Log "STOP: $env:COMPUTERNAME not match allowedHostPattern '$($cfg.allowedHostPattern)'" 'Red'; $global:LabExitCode = 1; return
     }
 

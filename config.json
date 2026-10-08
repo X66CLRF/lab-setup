@@ -1,5 +1,5 @@
 {
-  "allowedHostPattern": "^LAB-",
+  "allowedHostPattern": ".*",
   "deployShare": "\\\\192.168.0.72\\LabDeploy",
   "deployUser": "labdeploy",  "excludeProfiles": ["labadmin", "Administrator"],
 

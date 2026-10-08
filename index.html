@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NSRU Lab Setup</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+      max-width: 520px;
+      width: 100%;
+      padding: 32px;
+      text-align: center;
+    }
+    h1 {
+      font-size: 24px;
+      margin-top: 0;
+      margin-bottom: 8px;
+      color: #1e293b;
+    }
+    p {
+      color: #64748b;
+      font-size: 14px;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+    .btn {
+      display: inline-block;
+      width: 100%;
+      padding: 14px 20px;
+      background: #2563eb;
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 10px;
+      transition: background 0.2s;
+      box-sizing: border-box;
+    }
+    .btn:hover {
+      background: #1d4ed8;
+    }
+    .divider {
+      margin: 24px 0;
+      position: relative;
+      text-align: center;
+    }
+    .divider::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 50%;
+      width: 100%;
+      height: 1px;
+      background: #e2e8f0;
+    }
+    .divider span {
+      position: relative;
+      background: #ffffff;
+      padding: 0 12px;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .cmd-box {
+      background: #0f172a;
+      color: #38bdf8;
+      padding: 14px;
+      border-radius: 8px;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      text-align: left;
+      overflow-x: auto;
+      user-select: all;
+    }
+    .hint {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 8px;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🖥️ NSRU Lab Setup</h1>
+    <p>เครื่องมือติดตั้งและตั้งค่าเครื่องแล็บ / SPSS มรนว.</p>
+
+    <!-- ปุ่มดาวน์โหลด .bat -->
+    <a href="setup.bat" download="setup.bat" class="btn">⬇️ ดาวน์โหลด setup.bat</a>
+    <div class="hint" style="text-align: center; margin-top: 6px;">ดาวน์โหลดแล้วดับเบิลคลิกไฟล์เพื่อเริ่มใช้งานได้ทันที</div>
+
+    <div class="divider"><span>หรือรันผ่านคำสั่ง</span></div>
+
+    <!-- กล่อง Run / PowerShell -->
+    <div style="text-align: left; font-size: 13px; font-weight: 600; margin-bottom: 6px;">คัดลอกไปวางใน PowerShell (Admin):</div>
+    <div class="cmd-box">irm x66clrf.github.io/lab-setup/lab | iex</div>
+  </div>
+</body>
+</html>
