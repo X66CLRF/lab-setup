@@ -43,7 +43,7 @@ cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
   [4] Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search)
   [5] Check network status (VPN, KMS, share ports)
   [6] Unlock wallpaper
-  [7] Auto Sleep/Wake schedule (16:40 / 08:20)
+  [7] Auto Wake/Sleep schedule (08:20 / 16:40)
 ```
 
 In every sub-list: numbers like `1,3`, or Enter = all.
