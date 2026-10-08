@@ -49,6 +49,8 @@ if %errorlevel% neq 0 (
         echo Launching FortiClient... Please connect to SPSS VPN (gwspss.nsru.ac.th).
         start "" "!FORTI_GUI!"
         pause
+    ) else (
+        echo [i] FortiClient not found. Continuing to setup...
     )
 ) else (
     echo [OK] Campus network reachable.
