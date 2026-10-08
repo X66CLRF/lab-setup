@@ -21,7 +21,7 @@ function Invoke-LabSetup {
     $groups = [ordered]@{
         'Install software (choose programs)'           = @('Install', 'Winget')
         'Optimize PC (Cleanup, BrowserClean, RemoveApps, Tune)' = @('Optimize')
-        'Activate Windows / Office (campus KMS)'       = @('Activate')
+        'Activate Windows / Office (campus KMS - Lab PC only)' = @('Activate')
         'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search, SPSS license)' = @('Settings')
         'Check status (VPN, KMS, share, SPSS)'         = @('Check')
         'Unlock wallpaper'                             = @('Unlock')
@@ -327,9 +327,16 @@ function Invoke-LabSetup {
     $shareDrive = $null
     $shareOk    = $false
     if ($tasks | Where-Object { $_ -in 'Install', 'Wallpaper', 'Fonts', 'Certs', 'WinRARTheme' }) {
-        if (Test-Path "$uncShare\manifest.json") { $shareOk = $true; Log "share OK: $uncShare (stored credential)" }
-        elseif (-not (Test-NetConnection $shareHost -Port 445 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
-            Log "FAIL: cannot reach $shareHost port 445 (offline, wrong subnet, or blocked by firewall)" 'Red'
+        # Fast socket check first (1.5s timeout) to prevent 45-second SMB freeze when off-campus
+        $tSock = New-Object Net.Sockets.TcpClient
+        $ar = $tSock.BeginConnect($shareHost, 445, $null, $null)
+        $portReachable = $ar.AsyncWaitHandle.WaitOne(1500)
+        $tSock.Close()
+
+        if (-not $portReachable) {
+            Log "FAIL: cannot reach $shareHost port 445 (offline, wrong subnet, or need campus VPN)" 'Red'
+        } elseif (Test-Path "$uncShare\manifest.json") {
+            $shareOk = $true; Log "share OK: $uncShare (stored credential)"
         } else {
             Log "No stored credential for $shareHost. Tip: cmdkey /add:$shareHost /user:$shareHost\$($cfg.deployUser) /pass" 'Yellow'
             $cred = Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare"
@@ -658,24 +665,38 @@ function Invoke-LabSetup {
     # Detects every Windows/Office product with a key installed right now, shows a list, activates the chosen ones.
     if ($tasks -contains 'Activate') {
         Log '== Activate ==' 'Cyan'
-        $kms = $cfg.kms.host
-        $winAppId = '55c92734-d682-4d71-983e-d6ec3f16059f'
-        $offAppId = '0ff1ce15-a989-479d-af46-f275c6370663'
-        $statusName = @{ 0='Unlicensed'; 1='Licensed'; 2='OOB grace'; 3='OOT grace'; 4='NonGenuine grace'; 5='Notification'; 6='Extended grace' }
-        function Get-LicProducts {
-            Get-CimInstance SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL" |
-                Where-Object { $_.ApplicationID -in $winAppId, $offAppId } | Sort-Object ApplicationID, Name
+        $proceedActivate = $true
+        if ($interactive) {
+            Write-Host ''
+            Write-Host '  [!] WARNING: Campus KMS activation is intended for Lab PCs only.' -ForegroundColor Yellow
+            Write-Host '      It will replace current product keys with campus volume license (GVLK).' -ForegroundColor Yellow
+            Write-Host '      Do NOT run on personal/dev machines if you want to keep your license.' -ForegroundColor Yellow
+            Write-Host ''
+            $confirm = Read-Host "  Type 'YES' to proceed with activation (Enter = Cancel)"
+            if ($confirm -ne 'YES') {
+                Log 'SKIP Activate (cancelled by user)' 'Yellow'
+                $proceedActivate = $false
+            }
         }
-        $svc = Get-CimInstance SoftwareLicensingService
+        if ($proceedActivate) {
+            $kms = $cfg.kms.host
+            $winAppId = '55c92734-d682-4d71-983e-d6ec3f16059f'
+            $offAppId = '0ff1ce15-a989-479d-af46-f275c6370663'
+            $statusName = @{ 0='Unlicensed'; 1='Licensed'; 2='OOB grace'; 3='OOT grace'; 4='NonGenuine grace'; 5='Notification'; 6='Extended grace' }
+            function Get-LicProducts {
+                Get-CimInstance SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL" |
+                    Where-Object { $_.ApplicationID -in $winAppId, $offAppId } | Sort-Object ApplicationID, Name
+            }
+            $svc = Get-CimInstance SoftwareLicensingService
 
-        # Windows not on a KMS channel -> offer GVLK for its edition
-        $winProd = Get-LicProducts | Where-Object ApplicationID -eq $winAppId | Select-Object -First 1
-        $edition = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').EditionID
-        $gvlk    = $cfg.kms.windowsGvlk.$edition
+            # Windows not on a KMS channel -> offer GVLK for its edition
+            $winProd = Get-LicProducts | Where-Object ApplicationID -eq $winAppId | Select-Object -First 1
+            $edition = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').EditionID
+            $gvlk    = $cfg.kms.windowsGvlk.$edition
 
-        $prods = @(Get-LicProducts)
-        if (-not $prods) { Log 'No Windows/Office product with a key found' 'Yellow' }
-        else {
+            $prods = @(Get-LicProducts)
+            if (-not $prods) { Log 'No Windows/Office product with a key found' 'Yellow' }
+            else {
             Write-Host ''
             for ($i = 0; $i -lt $prods.Count; $i++) {
                 $p = $prods[$i]
@@ -722,6 +743,7 @@ function Invoke-LabSetup {
                 }
                 Invoke-CimMethod -InputObject $svc -MethodName RefreshLicenseStatus -ErrorAction SilentlyContinue | Out-Null
             }
+        }
         }
     }
 

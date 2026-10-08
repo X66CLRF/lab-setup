@@ -40,9 +40,9 @@ if %errorlevel% neq 0 (
 
 :: 4. ตั้งค่าระบบ Sleep 16:40 และ Wake 08:20 (ตัวเลือกเสริม)
 echo.
-echo [3/4] Auto Sleep/Wake Schedule
+echo [3/4] Auto Sleep/Wake Schedule (Optional - Lab PC only)
 set "ENABLE_SLEEP="
-set /p ENABLE_SLEEP="Enable Auto Sleep 16:40 and Wake 08:20 Mon-Fri? [y/N]: "
+set /p ENABLE_SLEEP="Enable Auto Sleep 16:40 and Wake 08:20 Mon-Fri? [y/N] (Default N): "
 if /i "!ENABLE_SLEEP!"=="y" (
     powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKING 1 >nul 2>&1
     powercfg /setactive SCHEME_CURRENT >nul 2>&1
