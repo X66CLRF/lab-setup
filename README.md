@@ -40,9 +40,9 @@ cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
   [1] Install software & auto-activate (Office, SPSS, share, winget)
   [2] Optimize PC (Cleanup, BrowserClean, RemoveApps, Tune)
   [3] Check & fix licenses (Windows, Office, SPSS - ตรวจสอบ/ต่ออายุ)
-  [4] Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search)
+  [4] Lab settings (Fonts, Certs, WinRAR theme, Google search)
   [5] Check network status (VPN, KMS, share ports)
-  [6] Unlock wallpaper
+  [6] Wallpaper (Set & Lock / Unlock)
   [7] Auto Wake/Sleep schedule (08:20 / 16:40)
 ```
 

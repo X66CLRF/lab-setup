@@ -24,12 +24,12 @@ function Invoke-LabSetup {
         'Check & fix licenses (ตรวจไลเซนส์ Windows, Office, SPSS - ต่ออายุ)' = @('LicenseCheck')
         'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search)' = @('Settings')
         'Check network status (VPN gateways, KMS, share ports)'         = @('Check')
-        'Unlock wallpaper'                                              = @('Unlock')
+        'Wallpaper (Set & Lock / Unlock)'                               = @('Wallpaper')
         'Auto Wake/Sleep schedule (08:20 / 16:40)'                      = @('AutoSleep')
     }
     $subMenus = @{
         'Optimize' = @('Cleanup', 'BrowserClean', 'RemoveApps', 'Tune')
-        'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'Wallpaper', 'BrowserSearch', 'SpssLicense')
+        'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'BrowserSearch', 'SpssLicense')
     }
     # --- admin check ---
     $id = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -530,42 +530,80 @@ function Invoke-LabSetup {
         }
     }
 
-    # ============ Wallpaper (lock) ============
-    if ($tasks -contains 'Wallpaper' -and $shareOk) {
+    # ============ Wallpaper (Lock / Unlock) ============
+    if ($tasks -contains 'Wallpaper' -or $tasks -contains 'Unlock') {
         Log '== Wallpaper ==' 'Cyan'
-        # any image in the share's wallpaper folder; menu picks one, otherwise the newest file
-        $imgs = @(Get-ChildItem (Join-Path $share $cfg.wallpaper.folder) -File -ErrorAction SilentlyContinue |
-                  Where-Object { $_.Extension -in '.jpg', '.jpeg', '.png', '.bmp' } | Sort-Object LastWriteTime -Descending)
-        $src = $null
-        if ($imgs.Count -eq 1 -or ($imgs.Count -gt 1 -and -not $interactive)) { $src = $imgs[0].FullName }
-        elseif ($imgs.Count -gt 1) {
-            $labels = @($imgs | ForEach-Object { '{0,-40} {1:yyyy-MM-dd}' -f $_.Name, $_.LastWriteTime })
-            Write-Host "`n--- Wallpaper ---" -ForegroundColor Cyan
-            for ($i = 0; $i -lt $labels.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $labels[$i]) }
-            $w = Read-Host 'Choose one (Enter = newest)'
-            $src = if ($w -match '^\d+$' -and [int]$w -ge 1 -and [int]$w -le $imgs.Count) { $imgs[[int]$w - 1].FullName } else { $imgs[0].FullName }
+        $wpAction = if ($tasks -contains 'Unlock') { '2' } else { $null }
+
+        if ($interactive -and -not $wpAction) {
+            Write-Host ""
+            Write-Host "  [1] Set & Lock Lab Wallpaper (จากเซิร์ฟเวอร์ + ล็อกไม่ให้เปลี่ยน)" -ForegroundColor Cyan
+            Write-Host "  [2] Unlock Wallpaper (ปลดล็อกให้เปลี่ยนรูปพื้นหลังได้อิสระ)" -ForegroundColor Yellow
+            Write-Host "  [B] Back to main menu" -ForegroundColor DarkGray
+            $ansWp = Read-Host "Choose option (1, 2 / B = back)"
+            if ($ansWp -eq '1') { $wpAction = '1' }
+            elseif ($ansWp -eq '2') { $wpAction = '2' }
+            else { Log "Wallpaper: cancelled (no change)." 'Yellow'; $wpAction = $null }
+        } elseif (-not $wpAction) {
+            $wpAction = '1'
         }
-        $dst = if ($src) { Join-Path $root ('wallpaper' + [IO.Path]::GetExtension($src).ToLower()) }
-        if (-not $src) { Log "FAIL: no image in $(Join-Path $share $cfg.wallpaper.folder)" 'Red' }
-        else {
-            Log "wallpaper: $(Split-Path $src -Leaf)"
-            # remove old copies with another extension so only the chosen image stays
-            Get-ChildItem $root -Filter 'wallpaper.*' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $dst -and -not $dryRun } | Remove-Item -Force
-            $changed = -not (Test-Path $dst) -or (Get-FileHash $src).Hash -ne (Get-FileHash $dst).Hash
-            if ($changed -and -not $dryRun) { Copy-Item $src $dst -Force; Log "copied new wallpaper" }
-            # Users: read-only on LabSetup folder
-            if (-not $dryRun) { icacls $root /inheritance:r /grant:r 'Administrators:(OI)(CI)F' 'SYSTEM:(OI)(CI)F' 'Users:(OI)(CI)RX' | Out-Null }
+
+        if ($wpAction -eq '1') {
+            if (-not $shareOk) {
+                Log "FAIL: share not connected (cannot fetch wallpaper)" 'Red'
+            } else {
+                # any image in the share's wallpaper folder; menu picks one, otherwise the newest file
+                $imgs = @(Get-ChildItem (Join-Path $share $cfg.wallpaper.folder) -File -ErrorAction SilentlyContinue |
+                          Where-Object { $_.Extension -in '.jpg', '.jpeg', '.png', '.bmp' } | Sort-Object LastWriteTime -Descending)
+                $src = $null
+                if ($imgs.Count -eq 1 -or ($imgs.Count -gt 1 -and -not $interactive)) { $src = $imgs[0].FullName }
+                elseif ($imgs.Count -gt 1) {
+                    $labels = @($imgs | ForEach-Object { '{0,-40} {1:yyyy-MM-dd}' -f $_.Name, $_.LastWriteTime })
+                    Write-Host "`n--- Wallpaper Images ---" -ForegroundColor Cyan
+                    for ($i = 0; $i -lt $labels.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $labels[$i]) }
+                    $w = Read-Host 'Choose one (Enter = newest)'
+                    $src = if ($w -match '^\d+$' -and [int]$w -ge 1 -and [int]$w -le $imgs.Count) { $imgs[[int]$w - 1].FullName } else { $imgs[0].FullName }
+                }
+                $dst = if ($src) { Join-Path $root ('wallpaper' + [IO.Path]::GetExtension($src).ToLower()) }
+                if (-not $src) { Log "FAIL: no image in $(Join-Path $share $cfg.wallpaper.folder)" 'Red' }
+                else {
+                    Log "wallpaper: $(Split-Path $src -Leaf)"
+                    # remove old copies with another extension so only the chosen image stays
+                    Get-ChildItem $root -Filter 'wallpaper.*' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $dst -and -not $dryRun } | Remove-Item -Force
+                    $changed = -not (Test-Path $dst) -or (Get-FileHash $src).Hash -ne (Get-FileHash $dst).Hash
+                    if ($changed -and -not $dryRun) { Copy-Item $src $dst -Force; Log "copied new wallpaper" }
+                    # Users: read-only on LabSetup folder
+                    if (-not $dryRun) { icacls $root /inheritance:r /grant:r 'Administrators:(OI)(CI)F' 'SYSTEM:(OI)(CI)F' 'Users:(OI)(CI)RX' | Out-Null }
+                    $hives = Get-UserHives
+                    try {
+                        foreach ($h in $hives) {
+                            Log "user: $($h.Name)"
+                            Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Policies\System" 'Wallpaper' $dst 'String'
+                            Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Policies\System" 'WallpaperStyle' "$($cfg.wallpaper.style)" 'String'
+                            Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Policies\ActiveDesktop" 'NoChangingWallPaper' 1 'DWord'
+                        }
+                    } finally { Close-UserHives $hives }
+                    if (-not $dryRun) { rundll32.exe user32.dll,UpdatePerUserSystemParameters 1, True }
+                    Log 'Wallpaper set & locked (applies at next sign-in)' 'Green'
+                }
+            }
+        } elseif ($wpAction -eq '2') {
+            Log "Unlocking wallpaper..."
             $hives = Get-UserHives
             try {
                 foreach ($h in $hives) {
-                    Log "user: $($h.Name)"
-                    Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Policies\System" 'Wallpaper' $dst 'String'
-                    Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Policies\System" 'WallpaperStyle' "$($cfg.wallpaper.style)" 'String'
-                    Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Policies\ActiveDesktop" 'NoChangingWallPaper' 1 'DWord'
+                    foreach ($k in 'System','ActiveDesktop') {
+                        $key = "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Policies\$k"
+                        foreach ($v in 'Wallpaper','WallpaperStyle','NoChangingWallPaper') {
+                            if ((Get-ItemProperty $key -ErrorAction SilentlyContinue).$v -ne $null) {
+                                if ($dryRun) { Log "  [dry] remove $key\$v" } else { Remove-ItemProperty $key -Name $v }
+                            }
+                        }
+                    }
                 }
             } finally { Close-UserHives $hives }
             if (-not $dryRun) { rundll32.exe user32.dll,UpdatePerUserSystemParameters 1, True }
-            Log 'Wallpaper applies at next sign-in' 'Green'
+            Log 'Wallpaper unlocked (users can change wallpaper freely)' 'Green'
         }
     }
 
@@ -729,23 +767,7 @@ function Invoke-LabSetup {
         if ($cfg.spss.licenseServer) { Log "  config spss.licenseServer = $($cfg.spss.licenseServer)" }
     }
 
-    # ============ Unlock wallpaper (undo) ============
-    if ($tasks -contains 'Unlock') {
-        Log '== Unlock wallpaper ==' 'Cyan'
-        $hives = Get-UserHives
-        try {
-            foreach ($h in $hives) {
-                foreach ($k in 'System','ActiveDesktop') {
-                    $key = "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Policies\$k"
-                    foreach ($v in 'Wallpaper','WallpaperStyle','NoChangingWallPaper') {
-                        if ((Get-ItemProperty $key -ErrorAction SilentlyContinue).$v -ne $null) {
-                            if ($dryRun) { Log "  [dry] remove $key\$v" } else { Remove-ItemProperty $key -Name $v }
-                        }
-                    }
-                }
-            }
-        } finally { Close-UserHives $hives }
-    }
+
 
     # ============ Auto Wake/Sleep (08:20 - 16:40 Mon-Fri) ============
     if ($tasks -contains 'AutoSleep') {

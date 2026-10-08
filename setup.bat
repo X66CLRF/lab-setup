@@ -6,9 +6,10 @@ title NSRU Lab Setup - SPSS
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo [i] Requesting Administrator privileges...
-    powershell -Command "Start-Process cmd -ArgumentList '/k \"\"%~f0\"\"' -Verb RunAs"
+    powershell -Command "Start-Process cmd -ArgumentList '/k pushd \"\"%~dp0\"\" && call \"%~nx0\"' -Verb RunAs"
     exit /b
 )
+pushd "%~dp0"
 
 :: กำหนดโฟลเดอร์ทำงานบนเครื่องลูก
 set "DEPLOY_DIR=%ProgramData%\LabDeploy"
@@ -61,4 +62,5 @@ echo.
 echo ========================================================
 echo  Execution finished. Press any key to exit...
 echo ========================================================
+popd
 pause >nul
