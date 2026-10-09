@@ -167,6 +167,85 @@ function Invoke-LabSetup {
                 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
         Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like $pattern }
     }
+    function Get-SpssDirs {
+        $dirs = [System.Collections.Generic.List[string]]::new()
+        $keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object {
+            ($_.DisplayName -like '*SPSS*' -or $_.DisplayName -like '*Amos*') -and $_.InstallLocation
+        } | ForEach-Object {
+            $p = $_.InstallLocation.Trim().TrimEnd('\')
+            if ((Test-Path $p) -and -not $dirs.Contains($p)) { $dirs.Add($p) }
+        }
+        $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ -and (Test-Path "$_\IBM") } | ForEach-Object { "$_\IBM" }
+        foreach ($r in $roots) {
+            Get-ChildItem $r -Directory -Recurse -ErrorAction SilentlyContinue | Where-Object {
+                (Test-Path (Join-Path $_.FullName 'stats.exe')) -or
+                (Test-Path (Join-Path $_.FullName 'spss.exe')) -or
+                (Test-Path (Join-Path $_.FullName 'law.exe')) -or
+                (Test-Path (Join-Path $_.FullName 'Amos.exe')) -or
+                (Test-Path (Join-Path $_.FullName 'spssprod.inf')) -or
+                (Test-Path (Join-Path $_.FullName 'lservrc')) -or
+                (Test-Path (Join-Path $_.FullName 'lopts'))
+            } | ForEach-Object {
+                if (-not $dirs.Contains($_.FullName)) { $dirs.Add($_.FullName) }
+            }
+        }
+        return @($dirs)
+    }
+    function Set-SpssLicense($targetDirs, $licenseServer) {
+        if (-not $licenseServer) { return }
+        if (-not $dryRun) {
+            [Environment]::SetEnvironmentVariable('LSHOST', $licenseServer, 'Machine')
+            $env:LSHOST = $licenseServer
+        }
+        Log "  LSHOST System Environment = $licenseServer" 'Green'
+        foreach ($d in $targetDirs) {
+            if (-not (Test-Path $d)) { continue }
+            $lshostFile = Join-Path $d 'lshost'
+            if (-not $dryRun) { Set-Content -Path $lshostFile -Value $licenseServer -Encoding ASCII }
+            Log "  $lshostFile -> $licenseServer" 'Green'
+            $infFile = Join-Path $d 'spssprod.inf'
+            if (Test-Path $infFile) {
+                $txt = Get-Content $infFile
+                $new = $txt | ForEach-Object {
+                    if ($_ -match '^\s*DaemonHost\s*=') { "DaemonHost=$licenseServer" }
+                    elseif ($_ -match '^\s*LicenseType\s*=') { 'LicenseType=Network' }
+                    else { $_ }
+                }
+                if (-not ($new -match '^DaemonHost=')) { $new += "DaemonHost=$licenseServer" }
+                if (-not ($new -match '^LicenseType=')) { $new += 'LicenseType=Network' }
+                if (-not $dryRun) { Set-Content -Path $infFile -Value $new -Encoding ASCII }
+            } else {
+                $new = "[Product]`r`nDaemonHost=$licenseServer`r`nLicenseType=Network`r`n"
+                if (-not $dryRun) { Set-Content -Path $infFile -Value $new -Encoding ASCII }
+            }
+            Log "  $infFile -> DaemonHost=$licenseServer" 'Green'
+        }
+        if (-not $dryRun) {
+            Get-Process -Name 'law', 'echoid', 'licadmin' -ErrorAction SilentlyContinue | Stop-Process -Force
+        }
+    }
+    function Set-WinRarLicense($sharePath, $localScriptDir) {
+        $rarRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ -and (Test-Path "$_\WinRAR") } | ForEach-Object { "$_\WinRAR" }
+        if (-not $rarRoots) { return }
+        $candidates = @(
+            (if ($sharePath) { Join-Path $sharePath 'winrar\rarreg.key' }),
+            (if ($sharePath) { Join-Path $sharePath 'rarreg.key' }),
+            (if ($localScriptDir) { Join-Path $localScriptDir 'winrar\rarreg.key' }),
+            (if ($localScriptDir) { Join-Path $localScriptDir 'rarreg.key' })
+        ) | Where-Object { $_ -and (Test-Path $_) }
+        if ($candidates.Count -gt 0) {
+            $keySrc = $candidates[0]
+            foreach ($rr in $rarRoots) {
+                $dstKey = Join-Path $rr 'rarreg.key'
+                if (-not (Test-Path $dstKey) -and -not $dryRun) {
+                    Copy-Item $keySrc $dstKey -Force
+                    Log "  Injected WinRAR key: $dstKey" 'Green'
+                }
+            }
+        }
+    }
 
     $interactive = -not $env:LAB_TASKS
     while ($true) {
@@ -497,13 +576,46 @@ function Invoke-LabSetup {
             $found = @(Get-Installed $pkg.displayNameMatch)
             $cur = $found | Where-Object DisplayVersion |
                    Sort-Object { try { [version]$_.DisplayVersion } catch { [version]'0.0' } } -Descending | Select-Object -First 1
-            if ($found -and -not $cur) { Log "$tag SKIP installed (no DisplayVersion to compare)"; continue }
-            if ($cur) {
+            $isAlreadyInstalled = $false
+            if ($found -and -not $cur) {
+                $isAlreadyInstalled = $true
+                Log "$tag Already installed -> Skipping installer, checking license directly." 'Green'
+            } elseif ($cur) {
                 $upToDate = try { [version]$cur.DisplayVersion -ge [version]$pkg.version }
                             catch { [string]$cur.DisplayVersion -ge [string]$pkg.version }
-                if ($upToDate) { Log "$tag SKIP installed $($cur.DisplayVersion) >= $($pkg.version)"; continue }
-                Log "$tag UPDATE $($cur.DisplayVersion) -> $($pkg.version)"
-            } else { Log "$tag INSTALL $($pkg.version)" }
+                if ($upToDate) {
+                    $isAlreadyInstalled = $true
+                    Log "$tag Already installed ($($cur.DisplayVersion)) -> Skipping installer, checking license directly." 'Green'
+                } else {
+                    Log "$tag UPDATE $($cur.DisplayVersion) -> $($pkg.version)"
+                }
+            } else {
+                Log "$tag INSTALL $($pkg.version)"
+            }
+
+            if ($isAlreadyInstalled) {
+                # Auto-inject / check license directly for already-installed software!
+                if ($pkg.name -like '*SPSS*' -or $pkg.displayNameMatch -like '*SPSS*' -or $pkg.name -like '*Amos*') {
+                    Log "$tag Auto-injecting SPSS license config..." 'Cyan'
+                    $sDirs = Get-SpssDirs
+                    Set-SpssLicense $sDirs $cfg.spss.licenseServer
+                    $isPing = Test-Connection $cfg.spss.licenseServer -Count 1 -Quiet -ErrorAction SilentlyContinue
+                    if ($isPing) {
+                        Log "$tag License server ($($cfg.spss.licenseServer)) reachable: OK" 'Green'
+                    } else {
+                        Log "$tag [!] License server ($($cfg.spss.licenseServer)) unreachable!" 'Yellow'
+                        Log "      -> If off-campus, connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443)" 'Yellow'
+                    }
+                }
+                elseif ($pkg.name -like '*Office*' -or $pkg.displayNameMatch -like '*Office*') {
+                    Log "$tag Auto-running Office KMS verification..." 'Cyan'
+                    $tasks += 'Activate'
+                }
+                elseif ($pkg.name -like '*WinRAR*') {
+                    Set-WinRarLicense $share $LabScriptDir
+                }
+                continue
+            }
             if ($dryRun) { continue }
 
             # b. copy to local temp (never run from UNC)
@@ -551,6 +663,11 @@ function Invoke-LabSetup {
                     Log "$tag notice noted"
                 }
                 $a = [string]$pkg.args
+                if ($pkg.name -like '*SPSS*' -or $pkg.displayNameMatch -like '*SPSS*' -or $pkg.name -like '*Amos*') {
+                    if ($a -notmatch 'LSHOST' -and $cfg.spss.licenseServer) {
+                        $a = ($a + " LICENSETYPE=`"Network`" LSHOST=`"$($cfg.spss.licenseServer)`" ALLUSERS=1").Trim()
+                    }
+                }
                 if ($dst -like '*.msi') {
                     if ($a -notmatch '/q[n|b|r|f]?' -and $a -notmatch '/quiet') {
                         $a = ($a + ' /qn /norestart').Trim()
@@ -570,6 +687,12 @@ function Invoke-LabSetup {
                 if ($code -in 3010, 1641) { $needReboot = $true }
                 if ($code -in 0, 3010, 1641) { Log "$tag OK exit $code" 'Green' }
                 else { Log "$tag FAIL exit $code" 'Red'; $global:LabExitCode = 4; continue }
+
+                # Kill law.exe if SPSS launched it
+                if ($pkg.name -like '*SPSS*' -or $pkg.displayNameMatch -like '*SPSS*' -or $pkg.name -like '*Amos*') {
+                    Start-Sleep -Seconds 1
+                    Get-Process -Name 'law', 'echoid', 'licadmin' -ErrorAction SilentlyContinue | Stop-Process -Force
+                }
 
                 # e. postInstall (current dir = share root)
                 if ($pkg.postInstall) {
@@ -614,6 +737,7 @@ function Invoke-LabSetup {
                 if ($code -eq 0 -or $code -eq -1978335189) { Log "[$id] OK" 'Green' }
                 else { Log "[$id] FAIL exit $('0x{0:X8}' -f $code)" 'Red'; $global:LabExitCode = 4 }
             }
+            Set-WinRarLicense $share $LabScriptDir
         }
     }
 
@@ -787,33 +911,23 @@ function Invoke-LabSetup {
         }
     }
 
-    # ============ SPSS license (Concurrent: write license server into spssprod.inf) ============
-    $ibmRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ -and (Test-Path "$_\IBM") } | ForEach-Object { "$_\IBM" }
-    $spssInfs = @($ibmRoots | ForEach-Object { Get-ChildItem $_ -Recurse -Filter 'spssprod.inf' -ErrorAction SilentlyContinue })
+    # ============ SPSS license (Concurrent: write license server into spssprod.inf, lshost, env) ============
     if ($tasks -contains 'SpssLicense') {
         Log '== SpssLicense ==' 'Cyan'
         $ls = $cfg.spss.licenseServer
         if (-not $ls) { Log 'SKIP: spss.licenseServer is empty in config.json' 'Yellow' }
-        elseif (-not $spssInfs) { Log 'SKIP: no spssprod.inf found (SPSS/Amos not installed?)' 'Yellow' }
         else {
-            foreach ($inf in $spssInfs) {
-                $txt = Get-Content $inf.FullName
-                $new = $txt | ForEach-Object { if ($_ -match '^\s*DaemonHost\s*=') { "DaemonHost=$ls" } elseif ($_ -match '^\s*LicenseType\s*=') { 'LicenseType=Network' } else { $_ } }
-                if (-not ($new -match '^DaemonHost=')) { $new += "DaemonHost=$ls" }
-                if (-not ($new -match '^LicenseType=')) { $new += 'LicenseType=Network' }
-                if (($txt -join "`n") -ne ($new -join "`n")) {
-                    if ($dryRun) { Log "  [dry] $($inf.FullName) -> DaemonHost=$ls"; continue }
-                    Copy-Item $inf.FullName "$($inf.FullName).bak" -Force
-                    Set-Content $inf.FullName $new -Encoding ASCII
-                    Log "  $($inf.FullName) -> DaemonHost=$ls (backup .bak)" 'Green'
+            $sDirs = @(Get-SpssDirs)
+            if ($sDirs.Count -eq 0) {
+                Log 'SKIP: no SPSS or Amos installation found in Program Files or Registry' 'Yellow'
+            } else {
+                Set-SpssLicense $sDirs $ls
+                $isPing = Test-Connection $ls -Count 1 -Quiet -ErrorAction SilentlyContinue
+                if ($isPing) {
+                    Log "License server ($ls) reachable: OK" 'Green'
                 } else {
-                    Log "  $($inf.FullName): already set"
-                }
-                # Sentinel LM lshost file in the same directory
-                $lsHostFile = Join-Path $inf.DirectoryName 'lshost'
-                if (-not (Test-Path $lsHostFile) -or (Get-Content $lsHostFile -ErrorAction SilentlyContinue).Trim() -ne $ls) {
-                    if (-not $dryRun) { Set-Content -Path $lsHostFile -Value $ls -Encoding ASCII }
-                    Log "  $lsHostFile -> $ls" 'Green'
+                    Log "[!] License server ($ls) unreachable!" 'Yellow'
+                    Log "    -> If off-campus, connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443)" 'Yellow'
                 }
             }
         }
@@ -843,15 +957,21 @@ function Invoke-LabSetup {
             $i = Get-Installed $app | Select-Object -First 1
             Log ("  {0,-22} {1}" -f $app.TrimEnd('*'), $(if ($i) { "$($i.DisplayVersion)" } else { 'NOT INSTALLED' }))
         }
-        foreach ($inf in $spssInfs) {
-            $kv = @{}; Get-Content $inf.FullName | Where-Object { $_ -match '^\s*(DaemonHost|LicenseType)\s*=\s*(.*)$' } | ForEach-Object { $kv[$Matches[1]] = $Matches[2] }
-            Log ("  {0}`n      LicenseType={1}  DaemonHost={2}" -f $inf.FullName, $kv.LicenseType, $kv.DaemonHost)
-            if ($kv.DaemonHost) {
-                $pong = Test-Connection $kv.DaemonHost -Count 1 -Quiet -ErrorAction SilentlyContinue
-                Log ("      license server ping: {0}" -f $(if ($pong) { 'OK' } else { 'no reply (connect SPSS VPN if off-campus)' })) $(if ($pong) { 'Green' } else { 'Yellow' })
-            }
+        $sDirs = @(Get-SpssDirs)
+        foreach ($sd in $sDirs) {
+            $lshostFile = Join-Path $sd 'lshost'
+            $curHost = if (Test-Path $lshostFile) { (Get-Content $lshostFile -Raw -ErrorAction SilentlyContinue).Trim() } else { $null }
+            $infFile = Join-Path $sd 'spssprod.inf'
+            $infHost = if (Test-Path $infFile) {
+                $m = (Get-Content $infFile | Select-String '^\s*DaemonHost\s*=\s*(.+)$')
+                if ($m) { $m.Matches[0].Groups[1].Value.Trim() } else { $null }
+            } else { $null }
+            Log ("  {0}`n      lshost={1}  DaemonHost={2}" -f $sd, $(if ($curHost) { $curHost } else { 'none' }), $(if ($infHost) { $infHost } else { 'none' }))
         }
-        if ($cfg.spss.licenseServer) { Log "  config spss.licenseServer = $($cfg.spss.licenseServer)" }
+        if ($cfg.spss.licenseServer) {
+            $pong = Test-Connection $cfg.spss.licenseServer -Count 1 -Quiet -ErrorAction SilentlyContinue
+            Log ("  SPSS license server ($($cfg.spss.licenseServer)) ping: {0}" -f $(if ($pong) { 'OK' } else { 'no reply (connect Fortinet SPSS VPN: gwspss.nsru.ac.th if off-campus)' })) $(if ($pong) { 'Green' } else { 'Yellow' })
+        }
     }
 
 
@@ -1083,9 +1203,7 @@ End If
         $gvlk    = $cfg.kms.windowsGvlk.$edition
 
         $prods = @(Get-LicProducts)
-        $ibmRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ -and (Test-Path "$_\IBM") } | ForEach-Object { "$_\IBM" }
-        $spssInfs = @($ibmRoots | ForEach-Object { Get-ChildItem $_ -Recurse -Filter 'spssprod.inf' -ErrorAction SilentlyContinue })
-        $spssLs   = $cfg.spss.licenseServer
+        $spssLs = $cfg.spss.licenseServer
 
         $osppFiles = @(
             "$env:ProgramFiles\Microsoft Office\root\Office16\OSPP.VBS",
@@ -1128,18 +1246,33 @@ End If
 
             # Check SPSS
             $spssNeedsFix = $false
-            if ($spssInfs) {
-                foreach ($inf in $spssInfs) {
-                    $appName = Split-Path (Split-Path $inf.FullName -Parent) -Leaf
-                    $curHost = $null
-                    Get-Content $inf.FullName | Where-Object { $_ -match '^\s*DaemonHost\s*=\s*(.+)$' } | ForEach-Object { $curHost = $Matches[1].Trim() }
-                    if ($curHost -eq $spssLs) {
-                        Write-Host ("  [OK] SPSS ({0,-16}) DaemonHost = {1}" -f $appName, $curHost) -ForegroundColor Green
+            $sDirs = @(Get-SpssDirs)
+            if ($sDirs.Count -gt 0) {
+                $isPing = Test-Connection $spssLs -Count 1 -Quiet -ErrorAction SilentlyContinue
+                foreach ($sd in $sDirs) {
+                    $appName = Split-Path $sd -Leaf
+                    $lshostFile = Join-Path $sd 'lshost'
+                    $curHost = if (Test-Path $lshostFile) { (Get-Content $lshostFile -Raw -ErrorAction SilentlyContinue).Trim() } else { $null }
+                    $infFile = Join-Path $sd 'spssprod.inf'
+                    $infHost = if (Test-Path $infFile) {
+                        $m = (Get-Content $infFile | Select-String '^\s*DaemonHost\s*=\s*(.+)$')
+                        if ($m) { $m.Matches[0].Groups[1].Value.Trim() } else { $null }
+                    } else { $null }
+
+                    $hostOk = ($curHost -eq $spssLs) -or ($infHost -eq $spssLs) -or ($env:LSHOST -eq $spssLs)
+                    if ($hostOk) {
+                        Write-Host ("  [OK] SPSS ({0,-16}) Server = {1} (LSHOST OK)" -f $appName, $spssLs) -ForegroundColor Green
                     } else {
-                        Write-Host ("  [!]  SPSS ({0,-16}) DaemonHost = {1} (Expected: {2})" -f $appName, $(if ($curHost) { $curHost } else { 'NOT SET' }), $spssLs) -ForegroundColor Yellow
+                        Write-Host ("  [!]  SPSS ({0,-16}) Server NOT set (Expected: {1})" -f $appName, $spssLs) -ForegroundColor Yellow
                         $needsFix = $true
                         $spssNeedsFix = $true
                     }
+                }
+                if ($isPing) {
+                    Write-Host "       License Server ($spssLs) Network Connection: OK (Connected)" -ForegroundColor Green
+                } else {
+                    Write-Host "       [!] License Server ($spssLs): No network reply." -ForegroundColor Yellow
+                    Write-Host "           -> If off-campus, must connect Fortinet VPN (gateway: gwspss.nsru.ac.th)" -ForegroundColor Yellow
                 }
             }
             Write-Host ''
@@ -1225,25 +1358,16 @@ End If
 
                 # Fix SPSS if needed or if part of this run
                 if ($spssNeedsFix -or $tasks -contains 'SpssLicense' -or ($autoOfficeActivate -and $hasSpss)) {
-                    if ($spssLs -and $spssInfs) {
-                        foreach ($inf in $spssInfs) {
-                            $txt = Get-Content $inf.FullName
-                            $new = $txt | ForEach-Object { if ($_ -match '^\s*DaemonHost\s*=') { "DaemonHost=$spssLs" } elseif ($_ -match '^\s*LicenseType\s*=') { 'LicenseType=Network' } else { $_ } }
-                            if (-not ($new -match '^DaemonHost=')) { $new += "DaemonHost=$spssLs" }
-                            if (-not ($new -match '^LicenseType=')) { $new += 'LicenseType=Network' }
-                            if (($txt -join "`n") -ne ($new -join "`n")) {
-                                if (-not $dryRun) {
-                                    Copy-Item $inf.FullName "$($inf.FullName).bak" -Force
-                                    Set-Content $inf.FullName $new -Encoding ASCII
-                                }
-                                Log "  $($inf.FullName) -> DaemonHost=$spssLs (backup .bak)" 'Green'
+                    if ($spssLs) {
+                        $sDirs = @(Get-SpssDirs)
+                        if ($sDirs.Count -gt 0) {
+                            Set-SpssLicense $sDirs $spssLs
+                            $isPing = Test-Connection $spssLs -Count 1 -Quiet -ErrorAction SilentlyContinue
+                            if ($isPing) {
+                                Log "  SPSS License Server ($spssLs) reachable: OK" 'Green'
                             } else {
-                                Log "  $($inf.FullName): already set to $spssLs"
-                            }
-                            $lsHostFile = Join-Path $inf.DirectoryName 'lshost'
-                            if (-not (Test-Path $lsHostFile) -or (Get-Content $lsHostFile -ErrorAction SilentlyContinue).Trim() -ne $spssLs) {
-                                if (-not $dryRun) { Set-Content -Path $lsHostFile -Value $spssLs -Encoding ASCII }
-                                Log "  $lsHostFile -> $spssLs" 'Green'
+                                Log "  [!] SPSS License Server ($spssLs) unreachable!" 'Yellow'
+                                Log "      -> If off-campus, connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443)" 'Yellow'
                             }
                         }
                     }
