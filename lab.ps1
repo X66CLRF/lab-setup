@@ -604,7 +604,7 @@ function Invoke-LabSetup {
                         Log "$tag License server ($($cfg.spss.licenseServer)) reachable: OK" 'Green'
                     } else {
                         Log "$tag [!] License server ($($cfg.spss.licenseServer)) unreachable!" 'Yellow'
-                        Log "      -> If off-campus, connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443)" 'Yellow'
+                        Log "      -> Must connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443) even when inside campus" 'Yellow'
                     }
                 }
                 elseif ($pkg.name -like '*Office*' -or $pkg.displayNameMatch -like '*Office*') {
@@ -927,7 +927,7 @@ function Invoke-LabSetup {
                     Log "License server ($ls) reachable: OK" 'Green'
                 } else {
                     Log "[!] License server ($ls) unreachable!" 'Yellow'
-                    Log "    -> If off-campus, connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443)" 'Yellow'
+                    Log "    -> Must connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443) even when inside campus" 'Yellow'
                 }
             }
         }
@@ -970,7 +970,7 @@ function Invoke-LabSetup {
         }
         if ($cfg.spss.licenseServer) {
             $pong = Test-Connection $cfg.spss.licenseServer -Count 1 -Quiet -ErrorAction SilentlyContinue
-            Log ("  SPSS license server ($($cfg.spss.licenseServer)) ping: {0}" -f $(if ($pong) { 'OK' } else { 'no reply (connect Fortinet SPSS VPN: gwspss.nsru.ac.th if off-campus)' })) $(if ($pong) { 'Green' } else { 'Yellow' })
+            Log ("  SPSS license server ($($cfg.spss.licenseServer)) ping: {0}" -f $(if ($pong) { 'OK' } else { 'no reply (must connect Fortinet SPSS VPN: gwspss.nsru.ac.th even on campus)' })) $(if ($pong) { 'Green' } else { 'Yellow' })
         }
     }
 
@@ -1272,7 +1272,7 @@ End If
                     Write-Host "       License Server ($spssLs) Network Connection: OK (Connected)" -ForegroundColor Green
                 } else {
                     Write-Host "       [!] License Server ($spssLs): No network reply." -ForegroundColor Yellow
-                    Write-Host "           -> If off-campus, must connect Fortinet VPN (gateway: gwspss.nsru.ac.th)" -ForegroundColor Yellow
+                    Write-Host "           -> Must connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443) even when inside campus" -ForegroundColor Yellow
                 }
             }
             Write-Host ''
@@ -1367,7 +1367,7 @@ End If
                                 Log "  SPSS License Server ($spssLs) reachable: OK" 'Green'
                             } else {
                                 Log "  [!] SPSS License Server ($spssLs) unreachable!" 'Yellow'
-                                Log "      -> If off-campus, connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443)" 'Yellow'
+                                Log "      -> Must connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443) even when inside campus" 'Yellow'
                             }
                         }
                     }
