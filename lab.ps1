@@ -62,6 +62,26 @@ function Invoke-LabSetup {
     }
     catch { Log "FAIL load config: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 1; return }
 
+    # Telemetry callback to LibDesk (non-blocking, guarded)
+    function Send-LabTelemetry($eventType, $title, $detail = $null) {
+        try {
+            $telemetryUrl = if ($cfg -and $cfg.telemetryUrl) { $cfg.telemetryUrl }
+                            elseif ($env:LAB_TELEMETRY_URL) { $env:LAB_TELEMETRY_URL }
+                            else { "https://libdesk.nsru.ac.th/api/computer-lab/telemetry" }
+            $camp = if ($cfg -and $cfg.campus) { $cfg.campus } else { "city" }
+            $payload = [PSCustomObject]@{
+                campus      = $camp
+                machineCode = $env:COMPUTERNAME
+                eventType   = $eventType
+                title       = $title
+                detail      = $detail
+                performedBy = $env:USERNAME
+            }
+            $body = $payload | ConvertTo-Json -Compress
+            Invoke-RestMethod -Uri $telemetryUrl -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 4 -ErrorAction SilentlyContinue | Out-Null
+        } catch {}
+    }
+
     # --- safety guard: only lab machines (skip if wildcard or not set) ---
     if ($cfg.allowedHostPattern -and $cfg.allowedHostPattern -ne '.*' -and ($env:COMPUTERNAME -notmatch $cfg.allowedHostPattern)) {
         Log "STOP: $env:COMPUTERNAME not match allowedHostPattern '$($cfg.allowedHostPattern)'" 'Red'; $global:LabExitCode = 1; return
@@ -1398,6 +1418,9 @@ End If
     if ($shareDrive) { Remove-PSDrive -Name LabDeploy -Force -ErrorAction SilentlyContinue; Log 'share disconnected' }
     $statusLabel = if ($interactive) { "Task finished (code $global:LabExitCode)" } else { "Done (exit $global:LabExitCode)" }
     Log "$statusLabel. Log: $logFile" $(if ($global:LabExitCode) { 'Yellow' } else { 'Green' })
+    $evType = if ($global:LabExitCode -ne 0) { 'crash' } elseif ($tasks -contains 'InstallApps') { 'app_update' } else { 'setup_action' }
+    $evTitle = if ($global:LabExitCode -ne 0) { "lab-setup failed (code $global:LabExitCode): $($tasks -join ', ')" } else { "lab-setup: $($tasks -join ', ')" }
+    Send-LabTelemetry -eventType $evType -title $evTitle -detail "Status: $statusLabel`nTasks: $($tasks -join ', ')" 
 
         if ($interactive) {
             Write-Host ""
