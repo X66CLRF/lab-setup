@@ -3,18 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NSRU Lab Setup — เครื่องมือตั้งค่าและติดตั้งโปรแกรมเครื่องแล็บ มรนว.</title>
+  <title>NSRU Lab Setup</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Prompt:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-base: #060913;
       --card-bg: rgba(13, 20, 38, 0.72);
       --card-border: rgba(99, 140, 255, 0.18);
       --primary: #38bdf8;
-      --primary-glow: rgba(56, 189, 248, 0.35);
-      --accent: #6366f1;
       --accent-gradient: linear-gradient(135deg, #38bdf8 0%, #6366f1 50%, #a855f7 100%);
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
@@ -29,7 +27,7 @@
     }
 
     body {
-      font-family: 'Plus Jakarta Sans', 'Prompt', -apple-system, sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background-color: var(--bg-base);
       color: var(--text-main);
       min-height: 100vh;
@@ -39,7 +37,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 32px 16px;
+      padding: 24px 16px;
     }
 
     #canvas3d {
@@ -55,11 +53,11 @@
     .container {
       position: relative;
       z-index: 10;
-      max-width: 720px;
+      max-width: 500px;
       width: 100%;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 16px;
     }
 
     /* Glass Card */
@@ -69,7 +67,7 @@
       -webkit-backdrop-filter: blur(24px);
       border: 1px solid var(--card-border);
       border-radius: 24px;
-      padding: 40px 36px;
+      padding: 36px 32px;
       box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7),
                   0 0 40px 0 rgba(56, 189, 248, 0.08);
       transition: border-color 0.3s ease, box-shadow 0.3s ease;
@@ -81,7 +79,7 @@
                   0 0 50px 0 rgba(56, 189, 248, 0.15);
     }
 
-    /* Badge */
+    /* Badges */
     .badge-wrap {
       display: flex;
       align-items: center;
@@ -93,23 +91,23 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 14px;
+      padding: 5px 12px;
       border-radius: 9999px;
       background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.3);
+      border: 1px solid rgba(56, 189, 248, 0.28);
       color: var(--primary);
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       letter-spacing: 0.5px;
       text-transform: uppercase;
     }
 
     .pulse-dot {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--success);
-      box-shadow: 0 0 10px var(--success);
+      box-shadow: 0 0 8px var(--success);
       animation: pulse 2s infinite ease-in-out;
     }
 
@@ -118,41 +116,64 @@
       50% { opacity: 0.4; transform: scale(0.85); }
     }
 
-    /* Typography */
+    /* Title */
     h1 {
-      font-size: 32px;
+      font-size: 30px;
       font-weight: 800;
-      line-height: 1.25;
-      margin-bottom: 12px;
+      line-height: 1.2;
+      margin-bottom: 28px;
       background: var(--accent-gradient);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       letter-spacing: -0.5px;
     }
 
-    .subtitle {
-      color: var(--text-muted);
-      font-size: 15px;
-      line-height: 1.6;
-      margin-bottom: 32px;
-      font-weight: 400;
-    }
-
-    /* Actions Grid */
+    /* Actions */
     .action-section {
       display: flex;
       flex-direction: column;
-      gap: 18px;
-      margin-bottom: 32px;
+      gap: 16px;
+    }
+
+    /* Download Button */
+    .btn-download {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 16px 20px;
+      background: var(--accent-gradient);
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 700;
+      border-radius: 14px;
+      box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    }
+
+    .btn-download:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 15px 35px -5px rgba(99, 102, 241, 0.6);
+      filter: brightness(1.1);
+    }
+
+    .btn-download:active {
+      transform: translateY(0);
+    }
+
+    .divider {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.08);
+      margin: 4px 0;
     }
 
     .section-label {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
-      color: #cbd5e1;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
     /* Command Box */
@@ -161,7 +182,7 @@
       background: rgba(6, 11, 25, 0.9);
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 14px;
-      padding: 16px 18px;
+      padding: 14px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -178,7 +199,7 @@
 
     .cmd-code {
       font-family: 'JetBrains Mono', Consolas, monospace;
-      font-size: 13.5px;
+      font-size: 13px;
       color: #38bdf8;
       word-break: break-all;
       user-select: all;
@@ -189,7 +210,7 @@
       border: 1px solid rgba(255, 255, 255, 0.15);
       color: #f1f5f9;
       border-radius: 8px;
-      padding: 8px 14px;
+      padding: 7px 12px;
       font-size: 12px;
       font-weight: 600;
       display: inline-flex;
@@ -212,78 +233,12 @@
       border-color: var(--success);
     }
 
-    /* Download Button */
-    .btn-download {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      padding: 16px 24px;
-      background: var(--accent-gradient);
-      color: #ffffff;
-      text-decoration: none;
-      font-size: 15px;
-      font-weight: 700;
-      border-radius: 14px;
-      box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
-      transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
-    }
-
-    .btn-download:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 15px 35px -5px rgba(99, 102, 241, 0.6);
-      filter: brightness(1.1);
-    }
-
-    .btn-download:active {
-      transform: translateY(0);
-    }
-
-    /* Features Grid */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-      margin-top: 10px;
-    }
-
-    .feature-item {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 12px;
-      padding: 14px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      transition: background 0.2s ease, border-color 0.2s ease;
-    }
-
-    .feature-item:hover {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(56, 189, 248, 0.2);
-    }
-
-    .feature-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: #e2e8f0;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .feature-desc {
-      font-size: 11.5px;
-      color: var(--text-sub);
-      line-height: 1.4;
-    }
-
     /* Footer */
     .footer {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 8px;
+      padding: 0 6px;
       font-size: 12px;
       color: var(--text-sub);
     }
@@ -306,14 +261,11 @@
         padding: 28px 20px;
       }
       h1 {
-        font-size: 26px;
-      }
-      .features-grid {
-        grid-template-columns: 1fr;
+        font-size: 24px;
       }
       .footer {
         flex-direction: column;
-        gap: 10px;
+        gap: 8px;
         text-align: center;
       }
     }
@@ -328,23 +280,29 @@
       <div class="badge-wrap">
         <div class="pill-badge">
           <span class="pulse-dot"></span>
-          <span>Release v1.1 Active</span>
+          <span>v1.1</span>
         </div>
         <div class="pill-badge" style="border-color: rgba(99, 102, 241, 0.3); color: #818cf8; background: rgba(99, 102, 241, 0.1);">
-          Windows 11 Pro
+          Windows 11
         </div>
       </div>
 
       <h1>🖥️ NSRU Lab Setup</h1>
-      <p class="subtitle">
-        เครื่องมือติดตั้งและตั้งค่าเครื่องแล็บคอมพิวเตอร์ มหาวิทยาลัยราชภัฏนครสวรรค์
-      </p>
 
       <div class="action-section">
-        <div class="section-label">
-          <span>PowerShell (Run as Administrator)</span>
-        </div>
-        
+        <a href="setup.bat" download="setup.bat" class="btn-download">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>setup.bat</span>
+        </a>
+
+        <div class="divider"></div>
+
+        <div class="section-label">PowerShell (Admin)</div>
+
         <div class="cmd-wrapper" id="cmdBox" onclick="copyCommand()">
           <span class="cmd-code" id="cmdText">irm x66clrf.github.io/lab-setup/go.txt | iex</span>
           <button class="copy-btn" id="copyBtn" type="button" aria-label="Copy Command">
@@ -352,58 +310,20 @@
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
-            <span id="copyBtnText">คัดลอก</span>
+            <span id="copyBtnText">Copy</span>
           </button>
-        </div>
-
-        <div style="height: 1px; background: rgba(255, 255, 255, 0.08); margin: 4px 0;"></div>
-
-        <a href="setup.bat" download="setup.bat" class="btn-download">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          <span>ดาวน์โหลด setup.bat</span>
-        </a>
-      </div>
-
-      <div class="section-label" style="margin-bottom: 12px;">
-        <span>หมวดการทำงาน</span>
-      </div>
-
-      <div class="features-grid">
-        <div class="feature-item">
-          <div class="feature-title">📦 [1] Install Software</div>
-          <div class="feature-desc">Office, SPSS, Winget (/qn)</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-title">🧹 [2] Optimize & Clean</div>
-          <div class="feature-desc">ล้างขยะไดรฟ์ D:, คลีนเนอร์เบราว์เซอร์, ปรับจูนระบบ</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-title">🛡️ [3] Diagnostics</div>
-          <div class="feature-desc">สถานะเครือข่าย, ตรวจสอบและต่ออายุ KMS</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-title">🎨 [4] Lab Settings</div>
-          <div class="feature-desc">ฟอนต์ มรนว., ใบรับรอง, Wallpaper, Search Policy</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-title">⏰ [5] Automation</div>
-          <div class="feature-desc">Auto Wake/Sleep, KeepAlive, CrashWatcher</div>
         </div>
       </div>
     </div>
 
     <div class="footer">
-      <div>สำนักวิทยบริการและเทคโนโลยีสารสนเทศ (ARITC) มหาวิทยาลัยราชภัฏนครสวรรค์</div>
+      <div>NSRU ARITC</div>
       <div>
         <a href="https://github.com/X66CLRF/lab-setup" target="_blank" rel="noopener noreferrer">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
           </svg>
-          <span>GitHub: X66CLRF/lab-setup</span>
+          <span>GitHub</span>
         </a>
       </div>
     </div>
@@ -412,18 +332,17 @@
   <!-- Three.js CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
-    // Copy Command to Clipboard
     function copyCommand() {
       const text = document.getElementById('cmdText').innerText;
       navigator.clipboard.writeText(text).then(() => {
         const btn = document.getElementById('copyBtn');
         const btnText = document.getElementById('copyBtnText');
         btn.classList.add('copied');
-        btnText.innerText = 'คัดลอกแล้ว!';
+        btnText.innerText = 'Copied';
         setTimeout(() => {
           btn.classList.remove('copied');
-          btnText.innerText = 'คัดลอก';
-        }, 2200);
+          btnText.innerText = 'Copy';
+        }, 2000);
       });
     }
 
@@ -438,8 +357,7 @@
       const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
       camera.position.z = 80;
 
-      // Particles Constellation
-      const particleCount = 200;
+      const particleCount = 180;
       const positions = new Float32Array(particleCount * 3);
       const velocities = [];
       const spread = 120;
@@ -450,8 +368,8 @@
         positions[i * 3 + 2] = (Math.random() - 0.5) * 60;
 
         velocities.push({
-          x: (Math.random() - 0.5) * 0.08,
-          y: (Math.random() - 0.5) * 0.08,
+          x: (Math.random() - 0.5) * 0.07,
+          y: (Math.random() - 0.5) * 0.07,
           z: (Math.random() - 0.5) * 0.04
         });
       }
@@ -459,7 +377,6 @@
       const particleGeo = new THREE.BufferGeometry();
       particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-      // Particle Material (Glowing cyan dots)
       const particleMat = new THREE.PointsMaterial({
         color: 0x38bdf8,
         size: 2.2,
@@ -471,7 +388,6 @@
       const particleSystem = new THREE.Points(particleGeo, particleMat);
       scene.add(particleSystem);
 
-      // Line segments connecting nearby nodes
       const lineMaterial = new THREE.LineBasicMaterial({
         color: 0x6366f1,
         transparent: true,
@@ -479,7 +395,7 @@
         blending: THREE.AdditiveBlending
       });
 
-      const maxConnections = particleCount * 6;
+      const maxConnections = particleCount * 5;
       const linePositions = new Float32Array(maxConnections * 3 * 2);
       const lineGeo = new THREE.BufferGeometry();
       lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
@@ -487,7 +403,6 @@
       const lineSystem = new THREE.LineSegments(lineGeo, lineMaterial);
       scene.add(lineSystem);
 
-      // Glowing Ambient Rings / Grid Torus
       const torusGeo = new THREE.TorusGeometry(38, 0.35, 16, 100);
       const torusMat = new THREE.MeshBasicMaterial({
         color: 0x3b82f6,
@@ -500,7 +415,6 @@
       torus.rotation.x = Math.PI / 3;
       scene.add(torus);
 
-      // Mouse Parallax
       let mouseX = 0;
       let mouseY = 0;
       let targetX = 0;
@@ -511,14 +425,12 @@
         mouseY = (e.clientY - window.innerHeight / 2) * 0.03;
       });
 
-      // Window Resize
       window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       });
 
-      // Animation Loop
       let clock = new THREE.Clock();
 
       function animate() {
@@ -527,7 +439,6 @@
         const delta = clock.getDelta();
         const pos = particleGeo.attributes.position.array;
 
-        // Smooth camera drift towards mouse
         targetX += (mouseX - targetX) * 0.04;
         targetY += (mouseY - targetY) * 0.04;
         camera.position.x = targetX;
@@ -537,7 +448,6 @@
         torus.rotation.z += 0.002;
         torus.rotation.y += 0.0015;
 
-        // Update particle positions
         let lineIdx = 0;
         const connectionDist = 22;
 
@@ -546,14 +456,12 @@
           pos[i * 3 + 1] += velocities[i].y;
           pos[i * 3 + 2] += velocities[i].z;
 
-          // Bounce boundaries
           const limitX = spread * 0.8;
           const limitY = spread * 0.55;
           if (pos[i * 3] < -limitX || pos[i * 3] > limitX) velocities[i].x *= -1;
           if (pos[i * 3 + 1] < -limitY || pos[i * 3 + 1] > limitY) velocities[i].y *= -1;
           if (pos[i * 3 + 2] < -30 || pos[i * 3 + 2] > 30) velocities[i].z *= -1;
 
-          // Connect with nearby particles
           for (let j = i + 1; j < particleCount; j++) {
             const dx = pos[i * 3] - pos[j * 3];
             const dy = pos[i * 3 + 1] - pos[j * 3 + 1];
@@ -573,7 +481,6 @@
         }
 
         particleGeo.attributes.position.needsUpdate = true;
-
         lineGeo.setDrawRange(0, lineIdx / 3);
         lineGeo.attributes.position.needsUpdate = true;
 
