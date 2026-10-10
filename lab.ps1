@@ -27,10 +27,11 @@ function Invoke-LabSetup {
         'Wallpaper (Set & Lock / Unlock)'                               = @('Wallpaper')
         'Auto Wake/Sleep schedule (08:20 / 16:40)'                      = @('AutoSleep')
         'Campus Internet KeepAlive (ล็อกอินเน็ตอัตโนมัติเบื้องหลัง - ตัวเลือกเฉพาะเครื่อง)' = @('KeepAlive')
+        'LibDesk Crash Watcher (ส่งล่อกจอฟ้า/แอปแครชเข้า LibDesk อัตโนมัติ - รับ KPI)' = @('CrashWatcher')
     }
     $subMenus = @{
         'Optimize' = @('Cleanup', 'BrowserClean', 'RemoveApps', 'Tune')
-        'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'BrowserSearch', 'SpssLicense')
+        'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'BrowserSearch', 'SpssLicense', 'CrashWatcher')
     }
     # --- admin check ---
     $id = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -1203,6 +1204,145 @@ End If
                 Log "Task '$taskName' not found or already removed." 'Yellow'
             }
             Get-Process powershell -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*KeepAlive.ps1*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # ============ LibDesk Crash Watcher (Scheduled Task) ============
+    if ($tasks -contains 'CrashWatcher') {
+        Log '== LibDesk Crash Watcher ==' 'Cyan'
+        $cwTaskName = 'Lab_CrashWatcher'
+        $cwScriptPath = Join-Path $root 'crash-watch.ps1'
+        $cwVbsPath = Join-Path $root 'crash-watch.vbs'
+        $telemetryUrl = if ($cfg -and $cfg.telemetryUrl) { $cfg.telemetryUrl }
+                        elseif ($env:LAB_TELEMETRY_URL) { $env:LAB_TELEMETRY_URL }
+                        else { 'https://libdesk.nsru.ac.th/api/computer-lab/telemetry' }
+        $camp = if ($cfg -and $cfg.campus) { $cfg.campus } else { 'city' }
+
+        $cwAction = if (-not $interactive) { '1' } else { $null }
+        if ($interactive -and -not $cwAction) {
+            $isCwInstalled = (Get-ScheduledTask -TaskName $cwTaskName -ErrorAction SilentlyContinue) -ne $null
+            $cwState = if ($isCwInstalled) { (Get-ScheduledTask -TaskName $cwTaskName).State } else { 'Not installed' }
+
+            Write-Host "`n  Background Task ($cwTaskName): " -NoNewline
+            if ($isCwInstalled) { Write-Host "$cwState (Active)" -ForegroundColor Green }
+            else { Write-Host "Not installed" -ForegroundColor DarkGray }
+            Write-Host "  Telemetry Target: $telemetryUrl (Campus: $camp)"
+            Write-Host "  Watcher script: $cwScriptPath"
+            Write-Host ""
+            Write-Host "  [1] Enable & Start background CrashWatcher (ติดตั้ง Task ตรวจจับจอฟ้า/แครช ระดับ SYSTEM)" -ForegroundColor Cyan
+            Write-Host "  [2] Test crash detection & send test telemetry to LibDesk (ทดสอบส่ง 1 ครั้ง)" -ForegroundColor Cyan
+            Write-Host "  [3] Disable & Remove CrashWatcher task (ปิดการทำงาน / ถอนการติดตั้ง)" -ForegroundColor Yellow
+            Write-Host "  [B] Back to main menu" -ForegroundColor DarkGray
+            $ansCw = Read-Host "Choose option (1-3 / B = back)"
+            if ($ansCw -in '1','2','3') { $cwAction = $ansCw }
+            else { Log "CrashWatcher: cancelled (no change)." 'Yellow'; $cwAction = $null }
+        }
+
+        if ($cwAction -in '1', '2') {
+            # Deploy crash-watch.ps1
+            $scriptContent = @"
+# LibDesk Crash & BSOD Watcher (NSRU Computer Lab)
+`$ErrorActionPreference = 'SilentlyContinue'
+`$root = Join-Path `$env:ProgramData 'LabDeploy'
+`$stateFile = Join-Path `$root 'last-crash-check.txt'
+`$now = Get-Date
+
+`$lastCheck = if (Test-Path `$stateFile) {
+    try { [DateTime]::Parse((Get-Content `$stateFile -Raw).Trim()) } catch { `$now.AddDays(-1) }
+} else {
+    `$now.AddDays(-1)
+}
+
+function Send-Report(`$title, `$detail) {
+    try {
+        `$body = [PSCustomObject]@{
+            campus      = '$camp'
+            machineCode = `$env:COMPUTERNAME
+            eventType   = 'crash'
+            title       = `$title
+            detail      = `$detail
+            performedBy = 'SYSTEM (CrashWatcher)'
+        } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Uri '$telemetryUrl' -Method Post -Body `$body -ContentType 'application/json' -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null
+    } catch {}
+}
+
+# 1. Check BSOD (System Event 1001) or Unexpected Shutdown (Event 6008)
+`$bsod = Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WER-SystemErrorReporting'; Id = 1001; StartTime = `$lastCheck } -MaxEvents 3 -ErrorAction SilentlyContinue
+if (-not `$bsod) {
+    `$bsod = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 6008; StartTime = `$lastCheck } -MaxEvents 3 -ErrorAction SilentlyContinue
+}
+if (`$bsod) {
+    foreach (`$ev in `$bsod) {
+        `$lbl = if (`$ev.Id -eq 1001) { 'ตรวจพบจอฟ้า (BSOD / BugCheck)' } else { 'ตรวจพบเครื่องดับผิดปกติ (Unexpected Shutdown)' }
+        Send-Report -title "`$lbl [`$(`$ev.TimeCreated.ToString('yyyy-MM-dd HH:mm'))]" -detail `$ev.Message
+    }
+}
+
+# 2. Check Severe Application Crashes (Event 1000)
+`$apps = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Application Error'; Id = 1000; StartTime = `$lastCheck } -MaxEvents 5 -ErrorAction SilentlyContinue
+if (`$apps) {
+    `$keyTargets = @('WINWORD.EXE', 'EXCEL.EXE', 'POWERPNT.EXE', 'stats.exe', 'spss.exe', 'explorer.exe')
+    foreach (`$ev in `$apps) {
+        `$found = `$false
+        foreach (`$kt in `$keyTargets) {
+            if (`$ev.Message -like "*`$kt*") { `$found = `$true; break }
+        }
+        if (`$found) {
+            `$appName = (`$ev.Message -split "`r?`n" | Select-String "Faulting application name: (.*)")[0]
+            `$appLabel = if (`$appName) { `$appName.Matches[0].Groups[1].Value } else { 'แอปพลิเคชัน' }
+            Send-Report -title "ตรวจพบแอปแครช: `$appLabel [`$(`$ev.TimeCreated.ToString('yyyy-MM-dd HH:mm'))]" -detail `$ev.Message
+        }
+    }
+}
+
+`$now.ToString('o') | Set-Content -Path `$stateFile -Encoding UTF8 -Force
+"@
+            $vbsContent = @"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$cwScriptPath""", 0, False
+"@
+            if (-not $dryRun) {
+                Set-Content -Path $cwScriptPath -Value $scriptContent -Encoding UTF8
+                Set-Content -Path $cwVbsPath -Value $vbsContent -Encoding ASCII
+            }
+
+            if ($cwAction -eq '1') {
+                if (-not $dryRun) {
+                    $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //Nologo `"$cwVbsPath`""
+                    $trigStartup = New-ScheduledTaskTrigger -AtStartup
+                    $trigDaily1  = New-ScheduledTaskTrigger -Daily -At '08:30'
+                    $trigDaily2  = New-ScheduledTaskTrigger -Daily -At '13:00'
+                    $principal   = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+                    $settings    = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+
+                    try {
+                        Unregister-ScheduledTask -TaskName $cwTaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+                        Register-ScheduledTask -TaskName $cwTaskName -Action $action -Trigger @($trigStartup, $trigDaily1, $trigDaily2) -Principal $principal -Settings $settings -Force | Out-Null
+                        Start-ScheduledTask -TaskName $cwTaskName -ErrorAction SilentlyContinue
+                        Log "CrashWatcher task '$cwTaskName' installed & started successfully (100% hidden, runs as SYSTEM on boot & daily)." 'Green'
+                    } catch {
+                        Log "FAIL register task: $($_.Exception.Message)" 'Red'
+                    }
+                } else {
+                    Log "  [dry] install scheduled task $cwTaskName"
+                }
+            } elseif ($cwAction -eq '2') {
+                Log "Testing CrashWatcher telemetry to $telemetryUrl..." 'Cyan'
+                Send-LabTelemetry -eventType 'crash' -title "[ทดสอบระบบ] CrashWatcher ตรวจสอบความพร้อมเครื่อง $env:COMPUTERNAME" -detail "การทดสอบส่งข้อมูลความผิดปกติจากเครื่องห้องคอมพิวเตอร์ไปยัง LibDesk เพื่อตรวจเช็คการติดป้ายเตือน Caution และรองรับการบันทึก KPI"
+                Log "Test telemetry sent! ตรวจสอบที่หน้า LibDesk ผังห้องคอมพิวเตอร์เพื่อดูป้ายเตือน Caution." 'Green'
+            }
+        }
+
+        if ($cwAction -eq '3') {
+            Log "Removing CrashWatcher task '$cwTaskName'..." 'Cyan'
+            try {
+                Stop-ScheduledTask -TaskName $cwTaskName -ErrorAction SilentlyContinue | Out-Null
+                Unregister-ScheduledTask -TaskName $cwTaskName -Confirm:$false -ErrorAction Stop | Out-Null
+                Log "Task '$cwTaskName' removed." 'Green'
+            } catch {
+                Log "Task '$cwTaskName' not found or already removed." 'Yellow'
+            }
         }
     }
 

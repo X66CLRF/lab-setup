@@ -101,5 +101,9 @@
   "wallpaper": {
     "folder": "wallpaper",
     "style": 4
-  }
+  },
+
+  "telemetryUrl": "https://libdesk.nsru.ac.th/api/computer-lab/telemetry",
+  "campus": "city"
 }
+

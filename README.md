@@ -45,6 +45,7 @@ cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
   [6] Wallpaper (Set & Lock / Unlock)
   [7] Auto Wake/Sleep schedule (08:20 / 16:40)
   [8] Campus Internet KeepAlive (ล็อกอินเน็ตอัตโนมัติเบื้องหลัง - ตัวเลือกเฉพาะเครื่อง)
+  [9] LibDesk Crash Watcher (ส่งล่อกจอฟ้า/แอปแครชเข้า LibDesk อัตโนมัติ - รับ KPI)
 ```
 
 In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = all, or `R` to re-select.
@@ -58,6 +59,7 @@ In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = all, or `R` 
 | Winget | Install/upgrade latest WinRAR, Foxit Reader via winget |
 | LicenseCheck | Inspect Windows, Office, and SPSS license health (licensed, days remaining, KMS, DaemonHost). Prompts to auto-fix/renew if any license is expired or missing. |
 | KeepAlive | Optional background daemon for campus LAN captive portal. Runs 100% headless (zero console window) as SYSTEM task, reads credentials from `\\192.168.0.72\LabDeploy\net-auth.env` or local cache. |
+| CrashWatcher | Background Scheduled Task (`Lab_CrashWatcher`) running as SYSTEM. Detects BSOD (BugCheck 1001), unexpected shutdowns (6008), and critical app crashes (1000). Reports to LibDesk telemetry to flag machine caution for KPI resolution. |
 | Fonts | Thai fonts from share `fonts\` or local/online fallback for all users |
 | Certs | Trusted Root import, thumbprint allowlist only |
 | WinRARTheme | WinRAR theme for all users |
