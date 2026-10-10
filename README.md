@@ -37,18 +37,14 @@ cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
 
 ```
 === Lab Setup ===
-  [1] Install software & auto-activate (Office, SPSS, share, winget)
-  [2] Optimize PC (Cleanup, BrowserClean, RemoveApps, Tune)
-  [3] Check & fix licenses (Windows, Office, SPSS - ตรวจสอบ/ต่ออายุ)
-  [4] Lab settings (Fonts, Certs, WinRAR theme, Google search)
-  [5] Check network status (VPN, KMS, share ports)
-  [6] Wallpaper (Set & Lock / Unlock)
-  [7] Auto Wake/Sleep schedule (08:20 / 16:40)
-  [8] Campus Internet KeepAlive (ล็อกอินเน็ตอัตโนมัติเบื้องหลัง - ตัวเลือกเฉพาะเครื่อง)
-  [9] LibDesk Crash Watcher (ส่งล่อกจอฟ้า/แอปแครชเข้า LibDesk อัตโนมัติ - รับ KPI)
+  [1] Install Software (Office, SPSS, Share packages, Winget)
+  [2] Optimize & Clean (Cleanup, BrowserClean, RemoveApps, Tune)
+  [3] Diagnostics & Licenses (Network status, Windows/Office/SPSS KMS check & fix)
+  [4] Lab Settings & Policies (Fonts, Certs, WinRAR theme, Wallpaper, Search)
+  [5] Background Automation (Auto Wake/Sleep, KeepAlive, LibDesk Crash Watcher)
 ```
 
-In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = all, or `R` to re-select.
+In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = default all (revert tasks excluded), or `B` to go back.
 
 | Task | What it does |
 |---|---|
@@ -65,7 +61,9 @@ In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = all, or `R` 
 | WinRARTheme | WinRAR theme for all users |
 | Wallpaper | Pick any image in share `wallpaper\` (newest if not asked), locked (Personalize greyed out) |
 | BrowserSearch | Google as default search via machine policy (Chrome, Edge, Firefox) |
+| RevertBrowserSearch | Remove search engine policies from Chrome, Edge, and Firefox |
 | Tune | High performance power plan, lighter visual effects, clear temp |
+| RevertTune | Restore Balanced power plan and default Windows visual effects |
 | SpssLicense | Write SPSS/Amos concurrent license server into `spssprod.inf` |
 | Check | Read-only status: VPN gateways, KMS, share, FortiClient/SPSS/Amos, SPSS license host |
 | Unlock | Remove wallpaper lock |

@@ -5,7 +5,7 @@
 #   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
-#   Tasks: Cleanup BrowserClean RemoveApps Tune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch SpssLicense Check Unlock AutoSleep KeepAlive
+#   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
 # Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
 
 # Folder of this script when run as a file (run.cmd on the share); empty for irm|iex
@@ -17,21 +17,40 @@ $LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.0/config
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'
     $dryRun = $env:LAB_DRYRUN -eq '1'
-    # Menu groups: installing software is separate from optimizing the PC
+    # Menu groups: 5 clean organized categories
     $groups = [ordered]@{
-        'Install software & auto-activate (Office, SPSS, share, winget)' = @('Install', 'Winget')
-        'Optimize PC (Cleanup, BrowserClean, RemoveApps, Tune)'          = @('Optimize')
-        'Check & fix licenses (ตรวจไลเซนส์ Windows, Office, SPSS - ต่ออายุ)' = @('LicenseCheck')
-        'Lab settings (Fonts, Certs, WinRAR theme, Wallpaper, Google search)' = @('Settings')
-        'Check network status (VPN gateways, KMS, share ports)'         = @('Check')
-        'Wallpaper (Set & Lock / Unlock)'                               = @('Wallpaper')
-        'Auto Wake/Sleep schedule (08:20 / 16:40)'                      = @('AutoSleep')
-        'Campus Internet KeepAlive (ล็อกอินเน็ตอัตโนมัติเบื้องหลัง - ตัวเลือกเฉพาะเครื่อง)' = @('KeepAlive')
-        'LibDesk Crash Watcher (ส่งล่อกจอฟ้า/แอปแครชเข้า LibDesk อัตโนมัติ - รับ KPI)' = @('CrashWatcher')
+        'Install Software (Office, SPSS, Share packages, Winget)'                       = @('Install', 'Winget')
+        'Optimize & Clean (Cleanup, BrowserClean, RemoveApps, Tune)'                    = @('Optimize')
+        'Diagnostics & Licenses (Network status, Windows/Office/SPSS KMS check & fix)'   = @('Diagnostics')
+        'Lab Settings & Policies (Fonts, Certs, WinRAR theme, Wallpaper, Search)'       = @('Settings')
+        'Background Automation (Auto Wake/Sleep, KeepAlive, LibDesk Crash Watcher)'     = @('Automation')
     }
     $subMenus = @{
-        'Optimize' = @('Cleanup', 'BrowserClean', 'RemoveApps', 'Tune')
-        'Settings' = @('Fonts', 'Certs', 'WinRARTheme', 'BrowserSearch', 'SpssLicense', 'CrashWatcher')
+        'Optimize' = @(
+            @{ Task = 'Cleanup';             Label = 'Cleanup (ล้าง Downloads, ไดรฟ์ D: และ Temp)' },
+            @{ Task = 'BrowserClean';        Label = 'BrowserClean (ล้างประวัติ/เซสชัน Chrome และ Edge)' },
+            @{ Task = 'RemoveApps';          Label = 'RemoveApps (ถอนบล็อกแวร์/แอนตี้ไวรัสเถื่อนตาม config)' },
+            @{ Task = 'Tune';                Label = 'Tune (เปิด High Performance + ปิด Visual Effects เร่งความเร็ว)' },
+            @{ Task = 'RevertTune';          Label = 'RevertTune (คืนค่า Balanced Power + คืนค่า Visual Effects ปกติ)' }
+        )
+        'Diagnostics' = @(
+            @{ Task = 'Check';               Label = 'Check Network (ตรวจสถานะเน็ต, VPN, KMS, พอร์ตแชร์ 445, SPSS)' },
+            @{ Task = 'LicenseCheck';        Label = 'LicenseCheck (ตรวจและต่ออายุไลเซนส์ Windows, Office, SPSS ผ่าน KMS)' },
+            @{ Task = 'SpssLicense';         Label = 'SpssLicense (ตั้งค่า IP ของ SPSS License Server)' }
+        )
+        'Settings' = @(
+            @{ Task = 'Fonts';               Label = 'Fonts (ติดตั้งฟอนต์ไทย มรนว. ทุกผู้ใช้)' },
+            @{ Task = 'Certs';               Label = 'Certs (ติดตั้งใบรับรองความปลอดภัย)' },
+            @{ Task = 'WinRARTheme';         Label = 'WinRAR Theme (ติดตั้งธีม WinRAR)' },
+            @{ Task = 'Wallpaper';           Label = 'Wallpaper (ตั้งค่า & ล็อกหน้าจอ / ปลดล็อก Wallpaper)' },
+            @{ Task = 'BrowserSearch';       Label = 'BrowserSearch (ตั้งค่าค้นหาเริ่มต้น Google ในเบราว์เซอร์)' },
+            @{ Task = 'RevertBrowserSearch'; Label = 'RevertBrowserSearch (ลบนโยบายค้นหา คืนสิทธิ์ให้เบราว์เซอร์เลือกเอง)' }
+        )
+        'Automation' = @(
+            @{ Task = 'AutoSleep';           Label = 'Auto Wake/Sleep (ตั้งเวลาเปิด-ปิดเครื่องอัตโนมัติ 08:20 / 16:40)' },
+            @{ Task = 'KeepAlive';           Label = 'Campus Internet KeepAlive (ล็อกอินอินเทอร์เน็ตอัตโนมัติ)' },
+            @{ Task = 'CrashWatcher';        Label = 'LibDesk Crash Watcher (เฝ้าระวังจอฟ้า/แอปแครช ส่ง LibDesk KPI)' }
+        )
     }
     # --- admin check ---
     $id = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -109,16 +128,33 @@ function Invoke-LabSetup {
     }
 
     function Read-Pick($items, $title) {
-        # returns selected items; Enter/0 = all; B = back to main menu
+        # returns selected task strings; Enter/0 = default all (revert tasks excluded unless chosen); B = back
         Write-Host "`n--- $title ---" -ForegroundColor Cyan
-        for ($i = 0; $i -lt $items.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $items[$i]) }
+        for ($i = 0; $i -lt $items.Count; $i++) {
+            $lbl = if ($items[$i] -is [hashtable] -and $items[$i].Label) { $items[$i].Label }
+                   elseif ($items[$i].PSObject.Properties['Label']) { $items[$i].Label }
+                   else { $items[$i] }
+            Write-Host ("  [{0}] {1}" -f ($i + 1), $lbl)
+        }
         Write-Host '  [B] Back to main menu' -ForegroundColor DarkGray
-        $s = Read-Host 'Choose (e.g. 1,3,5 or 1-3 / Enter = all / B = back)'
+        $s = Read-Host 'Choose (e.g. 1,3,5 or 1-3 / Enter = default all / B = back)'
         if ($s -eq 'b' -or $s -eq 'B') { return $null }
-        if ($s -notmatch '\d') { return $items }
-        $indices = Parse-IndexList $s $items.Count
-        if ($indices.Count -eq 0) { return $null }
-        $indices | ForEach-Object { $items[$_ - 1] }
+        $selectedItems = if ($s -notmatch '\d') {
+            # Enter = select standard tasks, exclude Revert tasks so hitting Enter does not accidentally undo
+            $items | Where-Object {
+                $t = if ($_ -is [hashtable] -and $_.Task) { $_.Task } elseif ($_.PSObject.Properties['Task']) { $_.Task } else { $_ }
+                $t -notmatch '^Revert'
+            }
+        } else {
+            $indices = Parse-IndexList $s $items.Count
+            if ($indices.Count -eq 0) { return $null }
+            $indices | ForEach-Object { $items[$_ - 1] }
+        }
+        return @($selectedItems | ForEach-Object {
+            if ($_ -is [hashtable] -and $_.Task) { $_.Task }
+            elseif ($_.PSObject.Properties['Task']) { $_.Task }
+            else { $_ }
+        })
     }
 
     # --- helpers ---
@@ -435,6 +471,30 @@ function Invoke-LabSetup {
         if (-not (Get-CimInstance Win32_ComputerSystem).PartOfDomain) {
             Log '  NOTE: PC is not domain-joined. Chrome/Edge may ignore search policies on unmanaged Windows - check chrome://policy and edge://policy' 'Yellow'
         }
+    }
+
+    # ============ RevertBrowserSearch: remove search policies ============
+    if ($tasks -contains 'RevertBrowserSearch') {
+        Log '== Revert BrowserSearch (Remove policies) ==' 'Cyan'
+        $searchKeys = 'DefaultSearchProviderEnabled','DefaultSearchProviderName','DefaultSearchProviderKeyword','DefaultSearchProviderSearchURL','DefaultSearchProviderSuggestURL'
+        foreach ($pol in 'HKLM:\SOFTWARE\Policies\Google\Chrome', 'HKLM:\SOFTWARE\Policies\Microsoft\Edge') {
+            if (Test-Path $pol) {
+                foreach ($k in $searchKeys) {
+                    if ((Get-ItemProperty $pol -ErrorAction SilentlyContinue).$k -ne $null) {
+                        if ($dryRun) { Log "  [dry] remove $pol\$k" }
+                        else { Remove-ItemProperty $pol -Name $k -ErrorAction SilentlyContinue }
+                    }
+                }
+                Log "  policy removed: $pol"
+            }
+        }
+        $ffDir = "$env:ProgramFiles\Mozilla Firefox\distribution"
+        $pj = Join-Path $ffDir 'policies.json'
+        if (Test-Path $pj) {
+            if ($dryRun) { Log "  [dry] remove $pj" }
+            else { Remove-Item $pj -Force -ErrorAction SilentlyContinue; Log '  Firefox policy removed' }
+        }
+        Log 'BrowserSearch reverted: policies removed (users can choose search engine freely)' 'Green'
     }
 
     # ============ RemoveApps ============
@@ -1553,6 +1613,23 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
                 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
             Log 'temp cleared'
         }
+    }
+
+    # ============ RevertTune: restore Balanced power plan & default visual effects ============
+    if ($tasks -contains 'RevertTune') {
+        Log '== Revert Tune (Restore defaults) ==' 'Cyan'
+        if (-not $dryRun) {
+            powercfg -setactive SCHEME_BALANCED
+            Log 'power plan: Balanced (Default)'
+        }
+        $hives = Get-UserHives
+        try {
+            foreach ($h in $hives) {
+                # VisualFXSetting 0 = Let Windows decide what's best for my computer (Default)
+                Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" 'VisualFXSetting' 0 'DWord'
+            }
+        } finally { Close-UserHives $hives }
+        Log 'Tune reverted: Balanced power plan & default visual effects restored' 'Green'
     }
 
     if ($shareDrive) { Remove-PSDrive -Name LabDeploy -Force -ErrorAction SilentlyContinue; Log 'share disconnected' }
