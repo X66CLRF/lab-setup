@@ -146,6 +146,30 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         & icacls $f /inheritance:r /grant:r '*S-1-5-18:R' '*S-1-5-32-544:F' | Out-Null
     }
 
+    # Share is the source of truth for net-auth.env / telemetry.token: copy when missing OR changed on the share,
+    # so a password/token changed once on Server 72 reaches every lab PC on its next KeepAlive/CrashWatcher run.
+    # Returns $true when the local file exists afterwards (share unreachable = keep the local copy).
+    function Sync-ShareFile([string]$src, [string]$dst, [string]$label) {
+        if ($src -and (Test-Path $src)) {
+            try {
+                $same = (Test-Path $dst) -and ((Get-FileHash $src).Hash -eq (Get-FileHash $dst).Hash)
+                if (-not $same) {
+                    if ($dryRun) { Log "  [dry] update $label from Server 72" }
+                    else {
+                        Copy-Item $src $dst -Force -ErrorAction Stop
+                        & icacls $dst /inheritance:r /grant:r 'Administrators:(F)' 'SYSTEM:(F)' | Out-Null
+                        Log "$label updated from Server 72 -> $dst (Admins & SYSTEM only)" 'Green'
+                    }
+                }
+            } catch { Log "FAIL copy $label from share: $($_.Exception.Message)" 'Yellow' }
+        } elseif (Test-Path $dst) {
+            Log "[i] $label not reachable on Server 72 - keeping local copy" 'DarkGray'
+        } else {
+            Log "[i] $label not found on Server 72 ($src). Check: cmdkey /list (labdeploy for $shareHost), port 445, or 'net use * /delete' if connected as another user." 'Yellow'
+        }
+        return (Test-Path $dst)
+    }
+
     function Send-LabTelemetry($eventType, $title, $detail = $null) {
         try {
             $telemetryUrl = if ($cfg -and $cfg.telemetryUrl) { $cfg.telemetryUrl }
@@ -591,7 +615,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
     $shareDrive = $null
     $shareOk    = $false
     $strictShareTasks = @($tasks | Where-Object { $_ -in 'Install', 'Wallpaper', 'Certs', 'WinRARTheme' })
-    $fontTask = @($tasks | Where-Object { $_ -eq 'Fonts' })
+    # soft = try the share, fall back quietly (Fonts -> GitHub; KeepAlive/CrashWatcher -> local copy of net-auth.env / telemetry.token)
+    $fontTask = @($tasks | Where-Object { $_ -in 'Fonts', 'KeepAlive', 'CrashWatcher' })
     if ($strictShareTasks -or $fontTask) {
         # Fast socket check first (1.5s timeout) to prevent 45-second SMB freeze
         $tSock = New-Object Net.Sockets.TcpClient
@@ -604,13 +629,14 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
                 Log "FAIL: cannot reach $shareHost port 445 (port 445 blocked on Wi-Fi - connect to wired lab LAN or VPN)" 'Red'
                 $global:LabExitCode = 2
             } else {
-                Log "[i] $shareHost port 445 unreachable (Wi-Fi/external). Will use local/GitHub fonts fallback." 'Yellow'
+                Log "[i] $shareHost port 445 unreachable (Wi-Fi/external). Using local copies / GitHub fallback." 'Yellow'
             }
         } elseif (Test-Path "$uncShare\manifest.json") {
             $shareOk = $true; Log "share OK: $uncShare (stored credential)"
         } else {
             Log "No stored credential for $shareHost. Tip: cmdkey /add:$shareHost /user:$shareHost\$($cfg.deployUser) /pass" 'Yellow'
-            $cred = Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare"
+            # unattended run with only soft tasks: never block on a credential dialog
+            $cred = if ($strictShareTasks -or $interactive) { Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare" } else { $null }
             if (-not $cred) {
                 if ($strictShareTasks) { Log 'FAIL: no credential given' 'Red'; $global:LabExitCode = 2 }
             } else {
@@ -1224,23 +1250,15 @@ STOP_HOUR=-1
                         try {
                             Copy-Item $localEnv $shareEnv -Force -ErrorAction Stop
                             Log "Copied net-auth.env to Server 72 share: $shareEnv" 'Green'
-                        } catch { Log "FAIL write to share: $($_.Exception.Message)" 'Yellow' }
+                        } catch { Log "FAIL write to share: $($_.Exception.Message) - labdeploy is read-only; update net-auth.env on Server 72 or the next KeepAlive run restores the share copy." 'Yellow' }
                     }
                 }
             } else { Log "Credentials not entered. Cancelled." 'Yellow' }
         }
 
         if ($kaAction -in '1', '2') {
-            # Ensure local env exists (fetch from 72 if missing)
-            if (-not (Test-Path $localEnv)) {
-                if (Test-Path $shareEnv) {
-                    try {
-                        Copy-Item $shareEnv $localEnv -Force
-                        icacls $localEnv /inheritance:r /grant:r 'Administrators:(F)' 'SYSTEM:(F)' | Out-Null
-                        Log "Fetched net-auth.env from Server 72 -> $localEnv" 'Green'
-                    } catch { Log "FAIL copy net-auth.env from share: $($_.Exception.Message)" 'Yellow' }
-                }
-            }
+            # Server 72 copy wins: fetch when missing or changed there
+            [void](Sync-ShareFile $shareEnv $localEnv 'net-auth.env')
             if (-not (Test-Path $localEnv)) {
                 Write-Host "`nCredentials not found. Please enter NSRU internet credentials:" -ForegroundColor Yellow
                 $uInput = Read-Host "NSRU Internet Username"
@@ -1378,14 +1396,9 @@ End If
             # Token: SYSTEM task cannot see the admin's env, so keep it in a file only SYSTEM/Administrators can read
             # Source order: share file (same pattern as net-auth.env, protected by the labdeploy cmdkey credential) > env > prompt
             $tokFile = Join-Path $root 'telemetry.token'
-            if (-not (Test-Path $tokFile)) {
-                $shareTok = if ($shareOk) { Join-Path $share 'telemetry.token' } else { "\\$shareHost\LabDeploy\telemetry.token" }
-                $tok = $null
-                if (Test-Path $shareTok) {
-                    try { $tok = [string](Get-Content $shareTok -Raw -ErrorAction Stop); Log "Fetched telemetry token from Server 72 share" 'Green' }
-                    catch { Log "FAIL read telemetry token from share: $($_.Exception.Message)" 'Yellow' }
-                }
-                if (-not $tok) { $tok = $env:LAB_TELEMETRY_TOKEN }
+            $shareTok = if ($shareOk) { Join-Path $share 'telemetry.token' } else { "\\$shareHost\LabDeploy\telemetry.token" }
+            if (-not (Sync-ShareFile $shareTok $tokFile 'telemetry.token')) {
+                $tok = $env:LAB_TELEMETRY_TOKEN
                 if (-not $tok -and $interactive) {
                     $sec = Read-Host "  LibDesk telemetry token (LAB_TELEMETRY_TOKEN, Enter = skip)" -AsSecureString
                     $tok = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
