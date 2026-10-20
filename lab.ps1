@@ -1067,18 +1067,40 @@ function Invoke-LabSetup {
         $choice = Read-Host "Choose option (1, 2 / B = back)"
         if ($choice -eq '1') {
             if ($dryRun) { Log "  [dry] configure Auto Wake/Sleep"; continue }
-            powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP RTCWAKING 1 2>$null | Out-Null
-            powercfg /setactive SCHEME_CURRENT 2>$null | Out-Null
-            schtasks /create /tn "Lab_AutoSleep" /tr "powershell -Command Add-Type -Assembly System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState('Suspend', `$false, `$false)" /sc weekly /d MON,TUE,WED,THU,FRI /st 16:40 /ru "SYSTEM" /f 2>$null | Out-Null
-            $act = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c ping 1.1.1.1 -n 1'
-            $trg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '08:20'
-            $set = New-ScheduledTaskSettingsSet -WakeToRun
-            Register-ScheduledTask -TaskName 'Lab_AutoWake' -Action $act -Trigger $trg -Settings $set -User 'SYSTEM' -Force | Out-Null
-            Log "Auto Wake (08:20) & Sleep (16:40) configured." 'Green'
+            # native exe + 2>$null under EAP=Stop throws on PS 5.1, so run powercfg with EAP=Continue.
+            # Wake timers by GUID (alias RTCWAKING does not exist); AC+DC, 1 = Enable (Win10/11 default is 2 = important only)
+            & {
+                $ErrorActionPreference = 'Continue'
+                $wakeGuid = 'BD3B718A-0680-4D9D-8AB2-E1D2B4AC806D'
+                powercfg /attributes SUB_SLEEP $wakeGuid -ATTRIB_HIDE 2>$null | Out-Null
+                powercfg /setacvalueindex SCHEME_CURRENT SUB_SLEEP $wakeGuid 1 2>$null | Out-Null
+                if ($LASTEXITCODE -ne 0) { Log "  WARN: cannot set 'Allow wake timers' (powercfg exit $LASTEXITCODE)" 'Yellow' }
+                powercfg /setdcvalueindex SCHEME_CURRENT SUB_SLEEP $wakeGuid 1 2>$null | Out-Null
+                powercfg /setactive SCHEME_CURRENT 2>$null | Out-Null
+                if ((powercfg /a 2>$null | Out-String) -match 'S0 Low Power Idle') {
+                    Log "  WARN: Modern Standby (S0) machine - wake timers may not fire; enable RTC/Power-On by Alarm in BIOS as backup." 'Yellow'
+                }
+            }
+            $days = 'Monday','Tuesday','Wednesday','Thursday','Friday'
+            $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+            $sleepAct = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.Application]::SetSuspendState([System.Windows.Forms.PowerState]::Suspend, `$false, `$false)`""
+            $sleepTrg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $days -At '16:40'
+            $sleepSet = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+            $wakeAct = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c exit 0'
+            $wakeTrg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $days -At '08:20'
+            $wakeSet = New-ScheduledTaskSettingsSet -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+            try {
+                Register-ScheduledTask -TaskName 'Lab_AutoSleep' -Action $sleepAct -Trigger $sleepTrg -Principal $principal -Settings $sleepSet -Force | Out-Null
+                Register-ScheduledTask -TaskName 'Lab_AutoWake' -Action $wakeAct -Trigger $wakeTrg -Principal $principal -Settings $wakeSet -Force | Out-Null
+                Log "Auto Wake (08:20) & Sleep (16:40) configured." 'Green'
+            } catch {
+                Log "FAIL: Auto Wake/Sleep task registration: $($_.Exception.Message)" 'Red'
+            }
         } elseif ($choice -eq '2') {
             if ($dryRun) { Log "  [dry] remove Auto Wake/Sleep tasks"; continue }
-            schtasks /delete /tn "Lab_AutoSleep" /f 2>$null | Out-Null
-            schtasks /delete /tn "Lab_AutoWake" /f 2>$null | Out-Null
+            foreach ($tn in 'Lab_AutoSleep', 'Lab_AutoWake') {
+                Unregister-ScheduledTask -TaskName $tn -Confirm:$false -ErrorAction SilentlyContinue
+            }
             Log "Auto Wake/Sleep disabled (scheduled tasks removed)." 'Green'
         } else {
             Log "Auto Wake/Sleep: cancelled (no change)." 'Yellow'
