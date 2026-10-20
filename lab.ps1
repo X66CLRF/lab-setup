@@ -82,24 +82,78 @@ function Invoke-LabSetup {
     }
     catch { Log "FAIL load config: $($_.Exception.Message)" 'Red'; $global:LabExitCode = 1; return }
 
-    # Telemetry callback to LibDesk (non-blocking, guarded)
+    # Telemetry to LibDesk (/computer-lab tab "จัดเครื่องเข้าห้อง") — non-blocking, guarded
+    # Same helper text runs here AND is embedded into crash-watch.ps1 (single source).
+    # Machine identity = hardwareId (BIOS serial > physical MAC > UUID), not COMPUTERNAME (names collide across campuses).
+    # Auth = shared token in %ProgramData%\LabDeploy\telemetry.token (ACL SYSTEM + Administrators) or $env:LAB_TELEMETRY_TOKEN.
+    # Never put the token in config.json (public on GitHub) or commit it. No token = nothing is sent.
+    $LabTelemetryHelpers = @'
+function Get-LabHardwareId {
+    $junk = '^(0+|none|default string|to be filled by o\.e\.m\.|system serial number|chassis serial number|not specified|not applicable|invalid|123456789|o\.e\.m\.)$'
+    try { $sn = [string](Get-CimInstance Win32_BIOS -ErrorAction Stop).SerialNumber } catch { $sn = '' }
+    $sn = $sn.Trim()
+    if ($sn -and $sn -notmatch $junk) {
+        $clean = $sn -replace '[^A-Za-z0-9._-]', ''
+        if ($clean.Length -ge 3) { return 'sn:' + $clean.Substring(0, [Math]::Min(96, $clean.Length)) }
+    }
+    try {
+        $nic = Get-CimInstance Win32_NetworkAdapter -Filter 'PhysicalAdapter=True' -ErrorAction Stop |
+            Where-Object { $_.MACAddress } | Sort-Object @{ Expression = { -not $_.NetEnabled } }, Index | Select-Object -First 1
+        if ($nic) { return 'mac:' + ($nic.MACAddress -replace '[^0-9A-Fa-f]', '').ToUpper() }
+    } catch {}
+    try { $uuid = [string](Get-CimInstance Win32_ComputerSystemProduct -ErrorAction Stop).UUID } catch { $uuid = '' }
+    if ($uuid -and $uuid -notmatch '^[0F-]+$') { return 'uuid:' + $uuid }
+    return $null
+}
+function Get-LabDomain {
+    try { return [string](Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).Domain } catch { return $null }
+}
+function Get-LabTelemetryToken {
+    $f = Join-Path $env:ProgramData 'LabDeploy\telemetry.token'
+    if (Test-Path $f) { $t = [string](Get-Content $f -Raw -ErrorAction SilentlyContinue); if ($t.Trim()) { return $t.Trim() } }
+    if ($env:LAB_TELEMETRY_TOKEN) { return $env:LAB_TELEMETRY_TOKEN.Trim() }
+    return $null
+}
+function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy) {
+    $token = Get-LabTelemetryToken
+    $hw = Get-LabHardwareId
+    if (-not $token -or -not $hw) { return $false }
+    if ($detail) { $detail = [string]$detail; if ($detail.Length -gt 3500) { $detail = $detail.Substring(0, 3500) } }
+    $body = [PSCustomObject]@{
+        campus      = $campus
+        machineCode = $env:COMPUTERNAME
+        hardwareId  = $hw
+        domain      = Get-LabDomain
+        eventType   = $eventType
+        title       = $title
+        detail      = $detail
+        performedBy = $performedBy
+    } | ConvertTo-Json -Compress
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072  # TLS 1.2
+        # bytes, not string: PS 5.1 sends string bodies as ISO-8859-1 and Thai titles arrive garbled
+        Invoke-RestMethod -Uri $url -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json; charset=utf-8' -Headers @{ 'X-Lab-Token' = $token } -TimeoutSec 5 -UseBasicParsing | Out-Null
+        return $true
+    } catch { return $false }
+}
+'@
+    . ([ScriptBlock]::Create($LabTelemetryHelpers))
+
+    # Store the token where the SYSTEM task can read it (admins only)
+    function Save-LabTelemetryToken([string]$token) {
+        $f = Join-Path $root 'telemetry.token'
+        Set-Content -Path $f -Value $token.Trim() -Encoding ASCII -NoNewline
+        & icacls $f /inheritance:r /grant:r '*S-1-5-18:R' '*S-1-5-32-544:F' | Out-Null
+    }
+
     function Send-LabTelemetry($eventType, $title, $detail = $null) {
         try {
             $telemetryUrl = if ($cfg -and $cfg.telemetryUrl) { $cfg.telemetryUrl }
                             elseif ($env:LAB_TELEMETRY_URL) { $env:LAB_TELEMETRY_URL }
                             else { "https://libdesk.nsru.ac.th/api/computer-lab/telemetry" }
             $camp = if ($cfg -and $cfg.campus) { $cfg.campus } else { "city" }
-            $payload = [PSCustomObject]@{
-                campus      = $camp
-                machineCode = $env:COMPUTERNAME
-                eventType   = $eventType
-                title       = $title
-                detail      = $detail
-                performedBy = $env:USERNAME
-            }
-            $body = $payload | ConvertTo-Json -Compress
-            Invoke-RestMethod -Uri $telemetryUrl -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 4 -ErrorAction SilentlyContinue | Out-Null
-        } catch {}
+            Send-LabEvent $telemetryUrl $camp $eventType $title $detail $env:USERNAME
+        } catch { $false }
     }
 
     # --- safety guard: only lab machines (skip if wildcard or not set) ---
@@ -1321,6 +1375,23 @@ End If
         }
 
         if ($cwAction -in '1', '2') {
+            # Token: SYSTEM task cannot see the admin's env, so keep it in a file only SYSTEM/Administrators can read
+            $tokFile = Join-Path $root 'telemetry.token'
+            if (-not (Test-Path $tokFile)) {
+                $tok = $env:LAB_TELEMETRY_TOKEN
+                if (-not $tok -and $interactive) {
+                    $sec = Read-Host "  LibDesk telemetry token (LAB_TELEMETRY_TOKEN, Enter = skip)" -AsSecureString
+                    $tok = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+                }
+                if ($tok -and $tok.Trim()) {
+                    if (-not $dryRun) { Save-LabTelemetryToken $tok }
+                    Log "Telemetry token saved to $tokFile (SYSTEM + Administrators only)." 'Green'
+                } else {
+                    Log "WARN: no telemetry token — CrashWatcher installs but LibDesk will not receive reports. Set LAB_TELEMETRY_TOKEN and rerun." 'Yellow'
+                }
+            }
+            Log "Hardware ID: $(Get-LabHardwareId) · Domain: $(Get-LabDomain)" 'DarkGray'
+
             # Deploy crash-watch.ps1
             $scriptContent = @"
 # LibDesk Crash & BSOD Watcher (NSRU Computer Lab)
@@ -1335,18 +1406,9 @@ End If
     `$now.AddDays(-1)
 }
 
+$LabTelemetryHelpers
 function Send-Report(`$title, `$detail) {
-    try {
-        `$body = [PSCustomObject]@{
-            campus      = '$camp'
-            machineCode = `$env:COMPUTERNAME
-            eventType   = 'crash'
-            title       = `$title
-            detail      = `$detail
-            performedBy = 'SYSTEM (CrashWatcher)'
-        } | ConvertTo-Json -Compress
-        Invoke-RestMethod -Uri '$telemetryUrl' -Method Post -Body `$body -ContentType 'application/json' -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null
-    } catch {}
+    Send-LabEvent '$telemetryUrl' '$camp' 'crash' `$title `$detail 'SYSTEM (CrashWatcher)' | Out-Null
 }
 
 # 1. Check BSOD (System Event 1001) or Unexpected Shutdown (Event 6008)
@@ -1411,8 +1473,10 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
                 }
             } elseif ($cwAction -eq '2') {
                 Log "Testing CrashWatcher telemetry to $telemetryUrl..." 'Cyan'
-                Send-LabTelemetry -eventType 'crash' -title "[ทดสอบระบบ] CrashWatcher ตรวจสอบความพร้อมเครื่อง $env:COMPUTERNAME" -detail "การทดสอบส่งข้อมูลความผิดปกติจากเครื่องห้องคอมพิวเตอร์ไปยัง LibDesk เพื่อตรวจเช็คการติดป้ายเตือน Caution และรองรับการบันทึก KPI"
-                Log "Test telemetry sent! ตรวจสอบที่หน้า LibDesk ผังห้องคอมพิวเตอร์เพื่อดูป้ายเตือน Caution." 'Green'
+                # eventType 'note' (not 'crash'): a test must not open an incident on an assigned machine
+                $sent = Send-LabTelemetry -eventType 'note' -title "[ทดสอบระบบ] CrashWatcher เครื่อง $env:COMPUTERNAME ส่งข้อมูลถึง LibDesk" -detail "ทดสอบการรายงานตัวของเครื่อง — เครื่องใหม่จะอยู่ในกล่อง ยังไม่จัดกลุ่ม ที่หน้า ดูแลคอมพิวเตอร์ แท็บ จัดเครื่องเข้าห้อง"
+                if ($sent) { Log "Test telemetry sent. เปิด LibDesk > ดูแลคอมพิวเตอร์ > จัดเครื่องเข้าห้อง แล้วลากเครื่องนี้เข้าห้อง" 'Green' }
+                else { Log "Test telemetry NOT sent (no token / no network / rejected)." 'Yellow' }
             }
         }
 
@@ -1657,9 +1721,10 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
     if ($shareDrive) { Remove-PSDrive -Name LabDeploy -Force -ErrorAction SilentlyContinue; Log 'share disconnected' }
     $statusLabel = if ($interactive) { "Task finished (code $global:LabExitCode)" } else { "Done (exit $global:LabExitCode)" }
     Log "$statusLabel. Log: $logFile" $(if ($global:LabExitCode) { 'Yellow' } else { 'Green' })
-    $evType = if ($global:LabExitCode -ne 0) { 'crash' } elseif ($tasks -contains 'InstallApps') { 'app_update' } else { 'setup_action' }
+    # failed run = setup_action (not 'crash'): crash opens an incident on assigned machines in LibDesk
+    $evType = if ($global:LabExitCode -ne 0) { 'setup_action' } elseif ($tasks -contains 'InstallApps') { 'app_update' } else { 'setup_action' }
     $evTitle = if ($global:LabExitCode -ne 0) { "lab-setup failed (code $global:LabExitCode): $($tasks -join ', ')" } else { "lab-setup: $($tasks -join ', ')" }
-    Send-LabTelemetry -eventType $evType -title $evTitle -detail "Status: $statusLabel`nTasks: $($tasks -join ', ')" 
+    Send-LabTelemetry -eventType $evType -title $evTitle -detail "Status: $statusLabel`nTasks: $($tasks -join ', ')" | Out-Null 
 
         if ($interactive) {
             Write-Host ""
