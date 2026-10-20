@@ -68,7 +68,7 @@ In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = default all 
 | Check | Read-only status: VPN gateways, KMS, share, FortiClient/SPSS/Amos, SPSS license host |
 | Unlock | Remove wallpaper lock |
 
-Options: `$env:LAB_DRYRUN='1'` (show only), `$env:LAB_TASKS='Install,Fonts'` (skip menu), `$env:LAB_YES='1'` (no drive prompt).
+Options: `$env:LAB_DRYRUN='1'` (show only), `$env:LAB_TASKS='Install,Fonts'` (skip menu), `$env:LAB_YES='1'` (no drive prompt), `$env:LAB_NO_AUTO_CW='1'` (do not auto-install CrashWatcher). Every launch (run.cmd / setup.bat / go.txt) installs CrashWatcher silently first when the PC does not have it yet, so new PCs appear in LibDesk "ยังไม่จัดกลุ่ม" with no menu pick.
 
 Log: `C:\ProgramData\LabDeploy\lab.log`.
 Exit codes: 0 ok, 1 not admin / config / host guard, 2 share connect, 3 manifest, 4 package failed, 5 activation failed.

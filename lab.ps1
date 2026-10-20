@@ -7,6 +7,7 @@
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
 #   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
 # Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
+# CrashWatcher auto-installs on launch when missing; opt out:  $env:LAB_NO_AUTO_CW='1'
 
 # Folder of this script when run as a file (run.cmd on the share); empty for irm|iex
 $LabScriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent }
@@ -383,11 +384,21 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
     }
 
     $interactive = -not $env:LAB_TASKS
+    # Auto-install CrashWatcher on every launch when missing, so the PC reports itself to LibDesk
+    # ("ยังไม่จัดกลุ่ม") without anyone picking it from the menu. Opt out: $env:LAB_NO_AUTO_CW='1'
+    $cwAutoPending = $env:LAB_NO_AUTO_CW -ne '1' -and (
+        -not (Get-ScheduledTask -TaskName 'Lab_CrashWatcher' -ErrorAction SilentlyContinue) -or
+        -not (Test-Path (Join-Path $env:ProgramData 'LabDeploy\crash-watch.ps1')))
     while ($true) {
         $global:LabExitCode = 0
         $tasks = @()
         $autoOfficeActivate = $false
-        if ($interactive) {
+        $cwAuto = $false
+        if ($cwAutoPending -and $interactive) {
+            # first pass: install CrashWatcher only, then the normal menu on the next pass
+            $cwAutoPending = $false; $cwAuto = $true; $tasks = @('CrashWatcher')
+            Log 'CrashWatcher not installed on this PC - installing automatically (reports to LibDesk).' 'Cyan'
+        } elseif ($interactive) {
             Write-Host "`n=== Lab Setup ===" -ForegroundColor Cyan
             $tClient1 = New-Object Net.Sockets.TcpClient
             $ar1 = $tClient1.BeginConnect('192.168.10.111', 1688, $null, $null)
@@ -425,7 +436,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
             }
             if (-not $tasks) { continue }
         } else {
-            $tasks = $env:LAB_TASKS -split ',' | ForEach-Object { $_.Trim() }
+            $tasks = @($env:LAB_TASKS -split ',' | ForEach-Object { $_.Trim() })
+            if ($cwAutoPending -and $tasks -notcontains 'CrashWatcher') { $tasks += 'CrashWatcher'; $cwAuto = $true }
         }
         $pickPackages = $interactive -and ($tasks -contains 'Install')
         Log "Tasks: $($tasks -join ', ')  DryRun: $dryRun" 'Cyan'
@@ -636,7 +648,7 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         } else {
             Log "No stored credential for $shareHost. Tip: cmdkey /add:$shareHost /user:$shareHost\$($cfg.deployUser) /pass" 'Yellow'
             # unattended run with only soft tasks: never block on a credential dialog
-            $cred = if ($strictShareTasks -or $interactive) { Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare" } else { $null }
+            $cred = if ($strictShareTasks -or ($interactive -and -not $cwAuto)) { Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare" } else { $null }
             if (-not $cred) {
                 if ($strictShareTasks) { Log 'FAIL: no credential given' 'Red'; $global:LabExitCode = 2 }
             } else {
@@ -1372,7 +1384,7 @@ End If
                         else { 'https://libdesk.nsru.ac.th/api/computer-lab/telemetry' }
         $camp = if ($cfg -and $cfg.campus) { $cfg.campus } else { 'city' }
 
-        $cwAction = if (-not $interactive) { '1' } else { $null }
+        $cwAction = if (-not $interactive -or $cwAuto) { '1' } else { $null }
         if ($interactive -and -not $cwAction) {
             $isCwInstalled = (Get-ScheduledTask -TaskName $cwTaskName -ErrorAction SilentlyContinue) -ne $null
             $cwState = if ($isCwInstalled) { (Get-ScheduledTask -TaskName $cwTaskName).State } else { 'Not installed' }
@@ -1399,7 +1411,7 @@ End If
             $shareTok = if ($shareOk) { Join-Path $share 'telemetry.token' } else { "\\$shareHost\LabDeploy\telemetry.token" }
             if (-not (Sync-ShareFile $shareTok $tokFile 'telemetry.token')) {
                 $tok = $env:LAB_TELEMETRY_TOKEN
-                if (-not $tok -and $interactive) {
+                if (-not $tok -and $interactive -and -not $cwAuto) {
                     $sec = Read-Host "  LibDesk telemetry token (LAB_TELEMETRY_TOKEN, Enter = skip)" -AsSecureString
                     $tok = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
                 }
@@ -1746,7 +1758,9 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
     $evTitle = if ($global:LabExitCode -ne 0) { "lab-setup failed (code $global:LabExitCode): $($tasks -join ', ')" } else { "lab-setup: $($tasks -join ', ')" }
     Send-LabTelemetry -eventType $evType -title $evTitle -detail "Status: $statusLabel`nTasks: $($tasks -join ', ')" | Out-Null 
 
-        if ($interactive) {
+        if ($interactive -and $cwAuto) {
+            continue  # auto-install pass done, go straight to the menu
+        } elseif ($interactive) {
             Write-Host ""
             Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
             Write-Host "Press Enter to return to main menu (or Q to Quit)..." -ForegroundColor Cyan
