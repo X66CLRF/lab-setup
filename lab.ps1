@@ -1376,9 +1376,16 @@ End If
 
         if ($cwAction -in '1', '2') {
             # Token: SYSTEM task cannot see the admin's env, so keep it in a file only SYSTEM/Administrators can read
+            # Source order: share file (same pattern as net-auth.env, protected by the labdeploy cmdkey credential) > env > prompt
             $tokFile = Join-Path $root 'telemetry.token'
             if (-not (Test-Path $tokFile)) {
-                $tok = $env:LAB_TELEMETRY_TOKEN
+                $shareTok = if ($shareOk) { Join-Path $share 'telemetry.token' } else { "\\$shareHost\LabDeploy\telemetry.token" }
+                $tok = $null
+                if (Test-Path $shareTok) {
+                    try { $tok = [string](Get-Content $shareTok -Raw -ErrorAction Stop); Log "Fetched telemetry token from Server 72 share" 'Green' }
+                    catch { Log "FAIL read telemetry token from share: $($_.Exception.Message)" 'Yellow' }
+                }
+                if (-not $tok) { $tok = $env:LAB_TELEMETRY_TOKEN }
                 if (-not $tok -and $interactive) {
                     $sec = Read-Host "  LibDesk telemetry token (LAB_TELEMETRY_TOKEN, Enter = skip)" -AsSecureString
                     $tok = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
