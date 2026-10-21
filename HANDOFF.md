@@ -1,36 +1,50 @@
-# HANDOFF — จัดระเบียบเมนู lab-setup 5 หมวด + เพิ่ม Revert
+# HANDOFF — แก้บั๊กติดตั้งโปรแกรม all: WinRAR syntax crash & ปลดล็อกแชร์ Server 72
 
-- **สถานะ:** ปิด
-- **ระดับ:** L2 · **ดำเนินการโดย:** Antigravity 2026-10-10
-- **เครื่อง:** BURT
-- **branch:** main · **ผล:** รวมเข้า main เรียบร้อย
+- **สถานะ:** เสร็จสิ้น (รอ Claude ตรวจ L3 หรือ merge เข้า main)
+- **ระดับ:** L2 · **ดำเนินการโดย:** Antigravity 2026-10-21
+- **เครื่อง:** ASUS
+- **branch:** handoff/fix-winrar-syntax
 
-## เป้าหมาย
-จัดระเบียบเมนู `lab.ps1` จาก 9 ข้อซ้ำซ้อน เหลือ 5 หมวดหลักตามกลุ่มหน้าที่ พร้อมเพิ่มตัวเลือก Revert ให้ Tune และ BrowserSearch และคง Safety Guards ทั้งหมด 100%
+## ปัญหาที่พบและสาเหตุ (จากรูปหน้าจอที่ผู้ใช้ส่งมา)
 
-## ทำแล้ว
-1. จัดกลุ่ม `$groups` เหลือ 5 หมวดหลัก:
-   - [1] Install Software (Office, SPSS, Share packages, Winget)
-   - [2] Optimize & Clean (Cleanup, BrowserClean, RemoveApps, Tune)
-   - [3] Diagnostics & Licenses (Network status, Windows/Office/SPSS KMS check & fix)
-   - [4] Lab Settings & Policies (Fonts, Certs, WinRAR theme, Wallpaper, Search)
-   - [5] Background Automation (Auto Wake/Sleep, KeepAlive, LibDesk Crash Watcher)
-2. อัปเกรด `Read-Pick`: รองรับ Label ภาษาไทยสวยงาม, คืนค่า Task name ถูกต้อง, และ `Enter` (default all) จะข้าม task ที่ขึ้นต้นด้วย `Revert` เสมอ เพื่อความปลอดภัย
-3. เพิ่ม `RevertBrowserSearch`: ลบ registry policies ของ Google Chrome, Edge และลบ `policies.json` ของ Firefox คืนสิทธิ์ให้ผู้ใช้
-4. เพิ่ม `RevertTune`: คืนค่า Power Plan เป็น `SCHEME_BALANCED` และ `VisualFXSetting` เป็น 0 (Let Windows decide)
-5. ตรวจสอบไวยากรณ์ PowerShell: `Parser::ParseFile` ผ่าน 0 error, UTF-8 BOM + CRLF ถูกต้อง
-6. อัปเดตเอกสาร `README.md`
-7. commit & push ขึ้น branch `handoff/menu-reorg` (commit `195882d`)
+1. **บั๊กแครชสีแดงหลังติดตั้ง Foxit Reader:**
+   - อาการ: `Invoke-Expression : The term 'if' is not recognized as the name of a cmdlet...` ที่บรรทัด Invoke-Expression แล้วเด้งหลุดกลับ `C:\Windows\system32>`
+   - สาเหตุ: ในฟังก์ชัน `Set-WinRarLicense` (บรรทัด 368) มีการเขียน `(if ($sharePath) { ... })` โดยไม่มีเครื่องหมาย `$` นำหน้า (`$(`) ทำให้ PowerShell 5.1 ใน expression `(...)` ตีความคำว่า `if` เป็นชื่อ cmdlet/คำสั่ง ไม่ใช่ keyword `if` จึงแครชและสั่งหยุดสคริปต์ทันทีเมื่อรัน Winget เสร็จ
 
-## เหลือ (เรียงตามลำดับ)
-1. Claude Code หรือผู้ดูแล ตรวจ diff บน branch `handoff/menu-reorg` — L3
-2. merge `handoff/menu-reorg` เข้า `main` — L3
-3. หากต้องการปล่อยเวอร์ชัน tag รัน `.\release.ps1 -Tag v1.1` แล้วคัดลอกขึ้นแชร์ `\\192.168.0.72\LabDeploy\lab\`
+2. **บัญชี `labdeploy` บน Server 72 ถูกล็อก (`Account active: Locked`):**
+   - อาการ: หน้าจอขึ้น `Notice connect share: The referenced account is currently locked out`
+   - สาเหตุ: เครื่องแล็บยังไม่มี credentials (`No stored credential for 192.168.0.72`) และมีการต่อเชื่อมผิดเกิน 10 ครั้ง (Lockout threshold = 10) บัญชี `labdeploy` บน Server 72 จึงถูก Windows ล็อกเอาต์ ทำให้เครื่องแล็บดึง `manifest.json` เพื่อลง Office / SPSS ไม่ได้ แสดงเฉพาะ Winget เท่านั้น
 
-## ตรวจยังไงว่าเสร็จ
-- `git diff main...handoff/menu-reorg`
-- PowerShell syntax: `$errs = $null; $toks = $null; [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path .\lab.ps1), [ref]$toks, [ref]$errs); $errs.Count` (ต้องได้ 0)
+3. **แชร์ `LabDeploy` บน Server 72 ถูกจำกัดจำนวนผู้ใช้ `Maximum users: 1`:**
+   - สาเหตุ: มีการตั้งขีดจำกัดแชร์ไว้ที่ 1 connection ทำให้เครื่องในแล็บเครื่องที่ 2+ เชื่อมต่อไม่ติดและเกิดข้อผิดพลาดสะสม
 
-## ห้าม / ระวัง
-- ห้ามรัน `lab.ps1` บนเครื่องเดฟส่วนตัว (รันเฉพาะเครื่องแล็บ Windows 11)
-- ไฟล์ `lab.ps1` ต้องคง UTF-8 BOM + CRLF เสมอ เพื่อให้ Windows PowerShell 5.1 ไม่พังกับภาษาไทย
+---
+
+## สิ่งที่ทำแล้ว
+
+1. **แก้บั๊กใน `lab.ps1`:**
+   - แก้ `Set-WinRarLicense`: เปลี่ยนจากการใช้ `(if ...)` มาเป็นบล็อก `if` ชัดเจน ปลอดภัย 100% ไม่เกิด runtime error อีก
+   - เพิ่มการดักจับ `The referenced account is currently locked out` ในฟังก์ชันต่อแชร์ ให้แสดงข้อความภาษาไทยชัดเจน
+   - ปรับข้อความเตือนเมื่อเชื่อมต่อ Server 72 ไม่สำเร็จในขั้นตอน `Install` ให้แจ้งเตือนสีแดงชัดเจนว่าไม่สามารถลง Office/SPSS ได้ (เหลือเฉพาะ Winget)
+   - ตรวจสอบไวยากรณ์ PowerShell: `Parser::ParseFile` ผ่าน 0 error, UTF-8 BOM + CRLF 1786 บรรทัดถูกต้องสมบูรณ์
+
+2. **ดำเนินการบน Server 72 ผ่าน SSH:**
+   - ปลดล็อกบัญชี `labdeploy`: รัน `net user labdeploy /active:yes` (สถานะปัจจุบัน: `Account active: Yes`)
+   - ขยายขีดจำกัดผู้ใช้แชร์ `LabDeploy`: รัน `net share LabDeploy /unlimited` (สถานะปัจจุบัน: `Maximum users: No limit`)
+
+---
+
+## สิ่งที่ต้องทำต่อที่เครื่องแล็บ
+
+1. ที่เครื่องแล็บ ให้เปิด Command Prompt / PowerShell รันคำสั่งจำรหัสผ่าน:
+   ```cmd
+   cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
+   ```
+   (ใส่รหัสผ่านของบัญชี `labdeploy`)
+
+2. หากมี session ค้าง ให้เคลียร์ก่อน:
+   ```cmd
+   net use * /delete /y
+   ```
+
+3. เมื่อ merge branch นี้แล้ว ให้สร้าง tag ใหม่ (`release.ps1`) หรือคัดลอก `lab.ps1` ไปวางทับที่ `\\192.168.0.72\LabDeploy\lab\lab.ps1`

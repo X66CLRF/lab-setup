@@ -365,14 +365,17 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
     function Set-WinRarLicense($sharePath, $localScriptDir) {
         $rarRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ -and (Test-Path "$_\WinRAR") } | ForEach-Object { "$_\WinRAR" }
         if (-not $rarRoots) { return }
-        $candidates = @(
-            (if ($sharePath) { Join-Path $sharePath 'winrar\rarreg.key' }),
-            (if ($sharePath) { Join-Path $sharePath 'rarreg.key' }),
-            (if ($localScriptDir) { Join-Path $localScriptDir 'winrar\rarreg.key' }),
-            (if ($localScriptDir) { Join-Path $localScriptDir 'rarreg.key' })
-        ) | Where-Object { $_ -and (Test-Path $_) }
-        if ($candidates.Count -gt 0) {
-            $keySrc = $candidates[0]
+        $candidates = @()
+        if ($sharePath) {
+            $candidates += (Join-Path $sharePath 'winrar\rarreg.key')
+            $candidates += (Join-Path $sharePath 'rarreg.key')
+        }
+        if ($localScriptDir) {
+            $candidates += (Join-Path $localScriptDir 'winrar\rarreg.key')
+            $candidates += (Join-Path $localScriptDir 'rarreg.key')
+        }
+        $keySrc = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+        if ($keySrc) {
             foreach ($rr in $rarRoots) {
                 $dstKey = Join-Path $rr 'rarreg.key'
                 if (-not (Test-Path $dstKey) -and -not $dryRun) {
@@ -657,7 +660,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
                     $share = 'LabDeploy:'; $shareOk = $true; Log "share OK: $uncShare"
                 } catch {
                     $m = $_.Exception.Message
-                    $why = if ($m -match 'password|logon failure|user name') { 'wrong user name or password' }
+                    $why = if ($m -match 'locked out') { 'account is locked out on server (ใส่รหัสผิดเกินจำนวนครั้ง บัญชี labdeploy ถูกล็อกที่ Server 72)' }
+                           elseif ($m -match 'password|logon failure|user name') { 'wrong user name or password' }
                            elseif ($m -match 'denied') { 'access denied (account has no permission on share)' }
                            elseif ($m -match 'network path|network name') { 'share name not found' }
                            elseif ($m -match 'multiple connections') { 'already connected with another user (run: net use * /delete)' }
@@ -685,7 +689,10 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         foreach ($id in $cfg.winget) {
             $items += [pscustomobject]@{ Kind = 'winget'; Ref = $id; Label = ("{0,-48} {1}" -f $id, 'winget (latest)') }
         }
-        if (-not $shareOk) { Write-Host '  (share not connected - only winget apps listed)' -ForegroundColor Yellow }
+        if (-not $shareOk) {
+            Write-Host "  [!] ไม่สามารถเชื่อมต่อ Server 72 ($uncShare) ได้: $why" -ForegroundColor Red
+            Write-Host "      โปรแกรมหลักจากแชร์ (Office, SPSS ฯลฯ) จะไม่แสดงในรายการ (แสดงเฉพาะ Winget)" -ForegroundColor Yellow
+        }
 
         $selectionConfirmed = $false
         while (-not $selectionConfirmed) {
