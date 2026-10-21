@@ -17,13 +17,20 @@ $LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.4/config
 
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'
+    try {
+        if ([Environment]::OSVersion.Platform -eq 'Win32NT') { chcp 65001 | Out-Null }
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+        Set-ItemProperty -Path 'HKCU:\Console' -Name 'QuickEdit' -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+    } catch {}
     $dryRun = $env:LAB_DRYRUN -eq '1'
     # Menu groups: 5 clean organized categories
     $groups = [ordered]@{
         'Install Software (Office, SPSS, Share packages, Winget)'                       = @('Install', 'Winget')
         'Optimize & Clean (Cleanup, BrowserClean, RemoveApps, Tune)'                    = @('Optimize')
         'Diagnostics & Licenses (Network status, Windows/Office/SPSS KMS check & fix)'   = @('Diagnostics')
-        'Lab Settings & Policies (Fonts, Certs, WinRAR theme, Wallpaper, Search)'       = @('Settings')
+        'Lab Settings & Policies (Fonts, Certs, WinRAR theme, Wallpaper, Search, Stop Sign-In)' = @('Settings')
         'Background Automation (Auto Wake/Sleep, KeepAlive, LibDesk Crash Watcher)'     = @('Automation')
     }
     $subMenus = @{
@@ -45,7 +52,9 @@ function Invoke-LabSetup {
             @{ Task = 'WinRARTheme';         Label = 'WinRAR Theme (ติดตั้งธีม WinRAR)' },
             @{ Task = 'Wallpaper';           Label = 'Wallpaper (ตั้งค่า & ล็อกหน้าจอ / ปลดล็อก Wallpaper)' },
             @{ Task = 'BrowserSearch';       Label = 'BrowserSearch (ตั้งค่าค้นหาเริ่มต้น Google ในเบราว์เซอร์)' },
-            @{ Task = 'RevertBrowserSearch'; Label = 'RevertBrowserSearch (ลบนโยบายค้นหา คืนสิทธิ์ให้เบราว์เซอร์เลือกเอง)' }
+            @{ Task = 'RevertBrowserSearch'; Label = 'RevertBrowserSearch (ลบนโยบายค้นหา คืนสิทธิ์ให้เบราว์เซอร์เลือกเอง)' },
+            @{ Task = 'StopSignIn';          Label = 'Stop Sign-In (บล็อก Microsoft Account + ปิดป๊อปอัป Office + ปิด Browser Sync)' },
+            @{ Task = 'RevertStopSignIn';    Label = 'RevertStopSignIn (คืนสิทธิ์ให้ Sign-in บัญชีได้ตามปกติ)' }
         )
         'Automation' = @(
             @{ Task = 'AutoSleep';           Label = 'Auto Wake/Sleep (ตั้งเวลาเปิด-ปิดเครื่องอัตโนมัติ 08:20 / 16:40)' },
@@ -293,7 +302,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         foreach ($item in Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue) {
             $full = $item.FullName.TrimEnd('\')
             if ($exclusions | Where-Object { $_ -ieq $full }) { Log "  keep $full"; continue }
-            if ($exclusions | Where-Object { $_ -ilike "$full\*" }) { Clear-Tree $full $exclusions; continue }
+            $fullPrefix = $full + '\'
+            if ($exclusions | Where-Object { $_.StartsWith($fullPrefix, [System.StringComparison]::OrdinalIgnoreCase) }) { Clear-Tree $full $exclusions; continue }
             Remove-Path $full
         }
     }
@@ -564,6 +574,54 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         if (-not (Get-CimInstance Win32_ComputerSystem).PartOfDomain) {
             Log '  NOTE: PC is not domain-joined. Chrome/Edge may ignore search policies on unmanaged Windows - check chrome://policy and edge://policy' 'Yellow'
         }
+    }
+
+
+    # ============ StopSignIn (Block Microsoft Account, Office Sign-in, Browser Sync) ============
+    if ($tasks -contains 'StopSignIn') {
+        Log '== Stop Sign-In Policies ==' 'Cyan'
+        # 1. Windows: Block Microsoft Accounts (cannot link personal MSA to Windows)
+        Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'NoConnectedUser' 3 'DWord'
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount' 'DisableUserAuth' 1 'DWord'
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableConsumerAccountStateContent' 1 'DWord'
+        Log '  Windows: Microsoft Accounts blocked (NoConnectedUser=3)' 'Green'
+
+        # 2. Microsoft Office: Block Sign-in prompts & personal accounts
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\SignIn' 'SignInOptions' 3 'DWord'
+        $hives = Get-UserHives
+        try {
+            foreach ($h in $hives) {
+                Set-Reg "$($h.Key)\Software\Microsoft\Office\16.0\Common\SignIn" 'SignInOptions' 3 'DWord'
+                Set-Reg "$($h.Key)\Software\Microsoft\Office\16.0\Common\General" 'ShownFirstRunOptin' 1 'DWord'
+            }
+        } finally { Close-UserHives $hives }
+        Log '  Office: Sign-in modal & first-run prompt suppressed (SignInOptions=3)' 'Green'
+
+        # 3. Browser: Disable account sync / sign-in on Chrome & Edge
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Google\Chrome' 'BrowserSignin' 0 'DWord'
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'BrowserSignin' 0 'DWord'
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SyncDisabled' 1 'DWord'
+        Log '  Browsers: Chrome & Edge sign-in / sync disabled' 'Green'
+        Log 'Stop Sign-In policies applied successfully.' 'Green'
+    }
+
+    # ============ RevertStopSignIn ============
+    if ($tasks -contains 'RevertStopSignIn') {
+        Log '== Revert Stop Sign-In Policies ==' 'Cyan'
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name 'NoConnectedUser' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount' -Name 'DisableUserAuth' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' -Name 'DisableConsumerAccountStateContent' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\SignIn' -Name 'SignInOptions' -ErrorAction SilentlyContinue
+        $hives = Get-UserHives
+        try {
+            foreach ($h in $hives) {
+                Remove-ItemProperty -Path "$($h.Key)\Software\Microsoft\Office\16.0\Common\SignIn" -Name 'SignInOptions' -ErrorAction SilentlyContinue
+            }
+        } finally { Close-UserHives $hives }
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Google\Chrome' -Name 'BrowserSignin' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' -Name 'BrowserSignin' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' -Name 'SyncDisabled' -ErrorAction SilentlyContinue
+        Log 'Stop Sign-In policies reverted: users can sign in normally.' 'Green'
     }
 
     # ============ RevertBrowserSearch: remove search policies ============
@@ -916,6 +974,11 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
                 # 0 ok; 0x8A15002B = no applicable upgrade (already latest)
                 if ($code -eq 0 -or $code -eq -1978335189) { Log "[$id] OK" 'Green' }
                 else { Log "[$id] FAIL exit $('0x{0:X8}' -f $code)" 'Red'; $global:LabExitCode = 4 }
+            }
+            Log "Upgrading all installed applications via Winget..." 'Cyan'
+            if (-not $dryRun) {
+                winget upgrade --all --silent --accept-package-agreements --accept-source-agreements --disable-interactivity | Out-Null
+                Log "Winget upgrade --all completed" 'Green'
             }
             Set-WinRarLicense $share $LabScriptDir
         }
