@@ -1,11 +1,11 @@
-# HANDOFF — แก้บั๊ก lab-setup & เพิ่ม winget upgrade --all + StopSignIn
+# HANDOFF — แก้บั๊ก lab-setup & เพิ่ม winget upgrade --all + StopSignIn + ปรับหน้าเว็บ
 
 - **สถานะ:** เสร็จสิ้น (รอ Claude ตรวจ L3 หรือ merge เข้า main)
 - **ระดับ:** L2 · **ดำเนินการโดย:** Antigravity 2026-10-21
 - **เครื่อง:** ASUS
 - **branch:** handoff/fix-winrar-syntax
 
-## ปัญหาทั้งหมดที่ตรวจพบและแก้ไข (จากรูปที่ส่งมา 5 รูป)
+## ปัญหาทั้งหมดที่ตรวจพบและแก้ไข (จากรูปที่ส่งมา 5 รูป และคำสั่งล่าสุด)
 
 1. **บั๊กแครชสีแดงหลังติดตั้ง Foxit Reader:**
    - อาการ: `The term 'if' is not recognized as the name of a cmdlet...`
@@ -18,7 +18,7 @@
 
 3. **ปัญหาภาษาไทยสระลอย / แยกตัว (`ต ด ต ง`, `ฟอนต ` ในรูปที่ 3):**
    - สาเหตุ: Console conhost เริ่มต้นด้วย Code Page ที่ไม่ใช่ UTF-8 (CP 874 / 437)
-   - แก้ไข: สั่ง `chcp 65001` และตั้ง `[Console]::OutputEncoding = UTF8` อัตโนมัติเมื่อเริ่มสคริปต์
+   - แก้ไข: สั่ง `chcp 65001` และตั้ง `OutputEncoding = UTF8` อัตโนมัติเมื่อเริ่มสคริปต์
 
 4. **ปัญหาคอนโซลค้าง / ต้องกด Enter:**
    - สาเหตุการค้าง: QuickEdit Mode ของคอนโซล Windows เมื่อเผลอคลิกเมาส์ในหน้าต่าง ดำเนินการ Pause ทันที (ขึ้น `Select` บน Title bar)
@@ -34,7 +34,11 @@
    - **Browser:** ปิด Sign in / Account Sync ใน Google Chrome และ Microsoft Edge (`BrowserSignin` = 0, `SyncDisabled` = 1)
    - มี **RevertStopSignIn** สำหรับคืนสิทธิ์ให้นักศึกษากลับมาล็อกอินได้หากต้องการ
 
-7. **เซิร์ฟเวอร์ Server 72:**
+7. **ปรับหน้าเว็บ GitHub Pages (`index.html`):**
+   - ลบปุ่มดาวน์โหลด `setup.bat` ออกตามคำสั่งผู้ใช้
+   - เหลือเฉพาะกล่องคัดลอกคำสั่ง `irm x66clrf.github.io/lab-setup/go.txt | iex` เพียงอย่างเดียว
+
+8. **เซิร์ฟเวอร์ Server 72:**
    - ปลดล็อกบัญชี `labdeploy` ผ่าน SSH แล้ว (`Account active: Yes`)
    - ขยายขีดจำกัดแชร์ `LabDeploy` ผ่าน SSH แล้ว (`Maximum users: No limit`)
 
