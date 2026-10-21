@@ -28,7 +28,7 @@ function Invoke-LabSetup {
     # Menu groups: 5 clean organized categories
     $groups = [ordered]@{
         'Install Software (Office, SPSS, Share packages, Winget)'                       = @('Install', 'Winget')
-        'Optimize & Clean (Cleanup, BrowserClean, RemoveApps, Tune)'                    = @('Optimize')
+        'Optimize & Clean (Cleanup, BrowserClean, RemoveApps, RemoveAI, Tune)'          = @('Optimize')
         'Diagnostics & Licenses (Network status, Windows/Office/SPSS KMS check & fix)'   = @('Diagnostics')
         'Lab Settings & Policies (Fonts, Certs, WinRAR theme, Wallpaper, Search, Stop Sign-In)' = @('Settings')
         'Background Automation (Auto Wake/Sleep, KeepAlive, LibDesk Crash Watcher)'     = @('Automation')
@@ -38,6 +38,8 @@ function Invoke-LabSetup {
             @{ Task = 'Cleanup';             Label = 'Cleanup (ล้าง Downloads, ไดรฟ์ D: และ Temp)' },
             @{ Task = 'BrowserClean';        Label = 'BrowserClean (ล้างประวัติ/เซสชัน Chrome และ Edge)' },
             @{ Task = 'RemoveApps';          Label = 'RemoveApps (ถอนบล็อกแวร์/แอนตี้ไวรัสเถื่อนตาม config)' },
+            @{ Task = 'RemoveAI';            Label = 'RemoveAI (ปิดและถอน Windows Copilot, Recall, AI Search, Click to Do)' },
+            @{ Task = 'RevertRemoveAI';      Label = 'RevertRemoveAI (คืนสิทธิ์ให้ใช้งาน Copilot และ Windows AI ได้)' },
             @{ Task = 'Tune';                Label = 'Tune (เปิด High Performance + ปิด Visual Effects เร่งความเร็ว)' },
             @{ Task = 'RevertTune';          Label = 'RevertTune (คืนค่า Balanced Power + คืนค่า Visual Effects ปกติ)' }
         )
@@ -1784,6 +1786,87 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
                 Invoke-CimMethod -InputObject $svc -MethodName RefreshLicenseStatus -ErrorAction SilentlyContinue | Out-Null
             }
         }
+    }
+
+
+    # ============ RemoveAI (Windows Copilot, Recall, AI Search, Click to Do) ============
+    if ($tasks -contains 'RemoveAI') {
+        Log '== Remove Windows AI ==' 'Cyan'
+
+        # 1. Disable Copilot (System & Per-User Policies)
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1 'DWord'
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 0 'DWord'
+        $hives = Get-UserHives
+        try {
+            foreach ($h in $hives) {
+                Set-Reg "$($h.Key)\Software\Policies\Microsoft\Windows\WindowsCopilot" 'TurnOffWindowsCopilot' 1 'DWord'
+                Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" 'ShowCopilotButton' 0 'DWord'
+            }
+        } finally { Close-UserHives $hives }
+        Log '  Copilot: disabled via Group Policy & taskbar button hidden' 'Green'
+
+        # 2. Disable Windows Recall (AI Data Analysis & Optional Feature)
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1 'DWord'
+        $hives = Get-UserHives
+        try {
+            foreach ($h in $hives) {
+                Set-Reg "$($h.Key)\Software\Policies\Microsoft\Windows\WindowsAI" 'DisableAIDataAnalysis' 1 'DWord'
+            }
+        } finally { Close-UserHives $hives }
+        if (-not $dryRun) {
+            dism.exe /Online /Disable-Feature /FeatureName:Recall /NoRestart /Quiet 2>$null | Out-Null
+        }
+        Log '  Windows Recall: disabled via policy & optional feature disabled' 'Green'
+
+        # 3. Disable AI Search / Bing in Windows Search
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'AllowCloudSearch' 0 'DWord'
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'ConnectedSearchUseWeb' 0 'DWord'
+        Set-Reg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'DisableWebSearch' 1 'DWord'
+        $hives = Get-UserHives
+        try {
+            foreach ($h in $hives) {
+                Set-Reg "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Search" 'BingSearchEnabled' 0 'DWord'
+            }
+        } finally { Close-UserHives $hives }
+        Log '  Windows Search: Bing web search & AI suggestions disabled' 'Green'
+
+        # 4. Remove Copilot, Recall, AI Provisioned AppX Packages
+        $aiPatterns = '*Copilot*', '*Recall*', '*Windows.Ai*'
+        foreach ($pattern in $aiPatterns) {
+            Get-AppxPackage -AllUsers $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+                Log "  Remove Appx: $($_.Name)"
+                if (-not $dryRun) { Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue }
+            }
+            Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Where-Object DisplayName -like $pattern | ForEach-Object {
+                Log "  Remove Provisioned: $($_.DisplayName)"
+                if (-not $dryRun) { Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue | Out-Null }
+            }
+        }
+        Log 'Windows AI components removed and disabled successfully.' 'Green'
+    }
+
+    # ============ RevertRemoveAI ============
+    if ($tasks -contains 'RevertRemoveAI') {
+        Log '== Revert Remove Windows AI ==' 'Cyan'
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' -Name 'TurnOffWindowsCopilot' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' -Name 'HubsSidebarEnabled' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' -Name 'DisableAIDataAnalysis' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' -Name 'AllowCloudSearch' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' -Name 'ConnectedSearchUseWeb' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search' -Name 'DisableWebSearch' -ErrorAction SilentlyContinue
+        $hives = Get-UserHives
+        try {
+            foreach ($h in $hives) {
+                Remove-ItemProperty -Path "$($h.Key)\Software\Policies\Microsoft\Windows\WindowsCopilot" -Name 'TurnOffWindowsCopilot' -ErrorAction SilentlyContinue
+                Remove-ItemProperty -Path "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name 'ShowCopilotButton' -ErrorAction SilentlyContinue
+                Remove-ItemProperty -Path "$($h.Key)\Software\Policies\Microsoft\Windows\WindowsAI" -Name 'DisableAIDataAnalysis' -ErrorAction SilentlyContinue
+                Remove-ItemProperty -Path "$($h.Key)\Software\Microsoft\Windows\CurrentVersion\Search" -Name 'BingSearchEnabled' -ErrorAction SilentlyContinue
+            }
+        } finally { Close-UserHives $hives }
+        if (-not $dryRun) {
+            dism.exe /Online /Enable-Feature /FeatureName:Recall /NoRestart /Quiet 2>$null | Out-Null
+        }
+        Log 'Windows AI policies reverted: Copilot and Recall can be re-enabled.' 'Green'
     }
 
     # ============ Tune (safe tweaks only) ============

@@ -1,11 +1,11 @@
-# HANDOFF — แก้บั๊ก lab-setup & เพิ่ม winget upgrade --all + StopSignIn + ปรับหน้าเว็บ
+# HANDOFF — แก้บั๊ก lab-setup & เพิ่ม winget upgrade --all + StopSignIn + RemoveAI + ปรับหน้าเว็บ
 
 - **สถานะ:** เสร็จสิ้น (รอ Claude ตรวจ L3 หรือ merge เข้า main)
 - **ระดับ:** L2 · **ดำเนินการโดย:** Antigravity 2026-10-21
 - **เครื่อง:** ASUS
 - **branch:** handoff/fix-winrar-syntax
 
-## ปัญหาทั้งหมดที่ตรวจพบและแก้ไข (จากรูปที่ส่งมา 5 รูป และคำสั่งล่าสุด)
+## ปัญหาทั้งหมดที่ตรวจพบและแก้ไข (รวมทุกคำสั่ง)
 
 1. **บั๊กแครชสีแดงหลังติดตั้ง Foxit Reader:**
    - อาการ: `The term 'if' is not recognized as the name of a cmdlet...`
@@ -34,11 +34,18 @@
    - **Browser:** ปิด Sign in / Account Sync ใน Google Chrome และ Microsoft Edge (`BrowserSignin` = 0, `SyncDisabled` = 1)
    - มี **RevertStopSignIn** สำหรับคืนสิทธิ์ให้นักศึกษากลับมาล็อกอินได้หากต้องการ
 
-7. **ปรับหน้าเว็บ GitHub Pages (`index.html`):**
+7. **เพิ่มชุดคำสั่งถอน Windows AI (`RemoveAI` และ `RevertRemoveAI` ในหมวด [2] Optimize & Clean):**
+   - **Copilot:** ปิดนโยบาย WindowsCopilot ทั่วทั้งระบบและทุกผู้ใช้ + ซ่อนปุ่มบน Taskbar + ปิด Copilot ใน Edge
+   - **Recall:** ปิดนโยบาย WindowsAI (DisableAIDataAnalysis) + สั่ง DISM ปิด Optional Feature `Recall`
+   - **Windows Search:** ปิด Bing Web Search & AI suggestions ในช่องค้นหา
+   - **AppX:** สั่งลบและถอนแพ็กเกจ Provisioned AppX ทั้ง `*Copilot*`, `*Recall*`, `*Windows.Ai*` ทิ้งอัตโนมัติ (เพิ่มลงใน `config.json` ด้วย)
+   - มี **RevertRemoveAI** คืนสิทธิ์เปิดใช้งานใหม่ได้หากจำเป็น
+
+8. **ปรับหน้าเว็บ GitHub Pages (`index.html`):**
    - ลบปุ่มดาวน์โหลด `setup.bat` ออกตามคำสั่งผู้ใช้
    - เหลือเฉพาะกล่องคัดลอกคำสั่ง `irm x66clrf.github.io/lab-setup/go.txt | iex` เพียงอย่างเดียว
 
-8. **เซิร์ฟเวอร์ Server 72:**
+9. **เซิร์ฟเวอร์ Server 72:**
    - ปลดล็อกบัญชี `labdeploy` ผ่าน SSH แล้ว (`Account active: Yes`)
    - ขยายขีดจำกัดแชร์ `LabDeploy` ผ่าน SSH แล้ว (`Maximum users: No limit`)
 
@@ -52,4 +59,4 @@
    cmdkey /add:192.168.0.72 /user:192.168.0.72\labdeploy /pass
    ```
 2. Merge branch `handoff/fix-winrar-syntax` เข้า `main`
-3. รัน `release.ps1` หรือนำ `lab.ps1` ไปวางที่ `\\192.168.0.72\LabDeploy\lab\lab.ps1`
+3. รัน `release.ps1` หรือนำ `lab.ps1` และ `config.json` ไปวางที่ `\\192.168.0.72\LabDeploy\lab\`

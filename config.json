@@ -1,15 +1,25 @@
 {
   "allowedHostPattern": ".*",
   "deployShare": "\\\\192.168.0.72\\LabDeploy",
-  "deployUser": "labdeploy",  "excludeProfiles": ["labadmin", "Administrator"],
-
+  "deployUser": "labdeploy",
+  "excludeProfiles": [
+    "labadmin",
+    "Administrator"
+  ],
   "cleanup": {
     "enabled": true,
-    "drives": ["D:"],
-    "desktopKeep": [".lnk", ".url"],
-    "exclude": ["D:\\Keep", "D:\\CourseData"]
+    "drives": [
+      "D:"
+    ],
+    "desktopKeep": [
+      ".lnk",
+      ".url"
+    ],
+    "exclude": [
+      "D:\\Keep",
+      "D:\\CourseData"
+    ]
   },
-
   "removeApps": [
     "McAfee*",
     "Avast*",
@@ -24,9 +34,11 @@
     "*CandyCrush*",
     "*McAfee*",
     "Microsoft.BingNews",
-    "Microsoft.GamingApp"
+    "Microsoft.GamingApp",
+    "*Copilot*",
+    "*Recall*",
+    "*Windows.Ai*"
   ],
-
   "kms": {
     "host": "nsru-kms-a.nsru.ac.th",
     "_note": "Public KMS client keys (GVLK) from Microsoft docs, keyed by EditionID",
@@ -67,43 +79,42 @@
       "Visio2024Pro_verify": "B7TN8-FJ8V3-7QYCP-HQPMV-YY89G"
     }
   },
-
   "winget": [
     "RARLab.WinRAR",
     "Foxit.FoxitReader"
   ],
-
   "certs": {
     "folder": "certs",
     "allowThumbprints": [
       "90A1B4ED726D1BD924AFF496792AE67C8091B524"
     ]
   },
-
   "spss": {
     "licenseServer": "192.168.3.10"
   },
-
   "vpn": [
-    { "name": "staff (remote)", "gateway": "sslvpn.nsru.ac.th", "port": 10443 },
-    { "name": "spss",           "gateway": "gwspss.nsru.ac.th", "port": 10443 }
+    {
+      "name": "staff (remote)",
+      "gateway": "sslvpn.nsru.ac.th",
+      "port": 10443
+    },
+    {
+      "name": "spss",
+      "gateway": "gwspss.nsru.ac.th",
+      "port": 10443
+    }
   ],
-
   "fonts": {
     "folder": "fonts"
   },
-
   "winrarTheme": {
     "folder": "winrar\\theme",
     "name": "Windows7_v2_48x48"
   },
-
   "wallpaper": {
     "folder": "wallpaper",
     "style": 4
   },
-
   "telemetryUrl": "https://libdesk.nsru.ac.th/api/computer-lab/telemetry",
   "campus": "city"
 }
-
