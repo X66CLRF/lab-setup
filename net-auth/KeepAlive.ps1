@@ -128,6 +128,7 @@ function Invoke-Login($redirTarget) {
     }
 
     $pageHtml = & $curl -s -k -m 8 "$loginPage" 2>$null
+    $pageExit = $LASTEXITCODE
     $magic = if ($pageHtml -match 'name="?magic"?\s+value="([^"]+)"') { $matches[1] } else { $magicToken }
     $redir = if ($pageHtml -match 'name="?4Tredir"?\s+value="([^"]+)"') { $matches[1] } else { "$targetPortal/" }
 
@@ -136,13 +137,17 @@ function Invoke-Login($redirTarget) {
     try {
         [IO.File]::WriteAllText($tmpPost, $postData, [Text.Encoding]::ASCII)
         $resp = & $curl -s -k -m 10 -d "@$tmpPost" "$targetPortal/" 2>$null
+        $postExit = $LASTEXITCODE
     } finally {
         Remove-Item $tmpPost -Force -ErrorAction SilentlyContinue
     }
 
-    if ($resp -match 'keepalive\?([0-9a-fA-F]+)') { return $matches[1] }
-    if ($resp -match 'logout\?([0-9a-fA-F]+)')    { return $matches[1] }
-    return $null
+    $tok = if ($resp -match 'keepalive\?([0-9a-fA-F]+)') { $matches[1] } elseif ($resp -match 'logout\?([0-9a-fA-F]+)') { $matches[1] } else { $null }
+    # one line per attempt so keepalive.log shows WHY a login failed (curl 35 = TLS handshake, 28 = timeout, 6/7 = DNS/connect)
+    Write-Log ("Login detail: redirect={0} page=curl{1} magic={2} post=curl{3} token={4}" -f
+        $(if ($redirTarget) { $targetPortal } else { 'none' }), $pageExit, $(if ($magic) { 'found' } else { 'MISSING' }), $postExit,
+        $(if ($tok) { 'found' } elseif ($resp -match 'type="password"') { 'none (login page again: wrong user/password?)' } else { 'none' }))
+    return $tok
 }
 
 Write-Log "KeepAlive started (Target: $portalUrl, Interval: ${IntervalSec}s)"
@@ -173,7 +178,7 @@ while ($true) {
     if ($StopHour -ge 0) {
         $now = Get-Date
         if ($now.Hour -eq $StopHour) {
-            Write-Log "Stop hour reached ($StopHour:00). Exiting daemon."
+            Write-Log "Stop hour reached (${StopHour}:00). Exiting daemon."
             if ($token) {
                 & $curl -s -k -m 5 "$portalUrl/logout?$token" 2>$null | Out-Null
             }

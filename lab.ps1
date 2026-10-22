@@ -861,12 +861,12 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
                     Log "$tag Auto-injecting SPSS license config..." 'Cyan'
                     $sDirs = Get-SpssDirs
                     Set-SpssLicense $sDirs $cfg.spss.licenseServer
-                    $isPing = Test-Connection $cfg.spss.licenseServer -Count 1 -Quiet -ErrorAction SilentlyContinue
+                    $isPing = Test-NetConnection $cfg.spss.licenseServer -Port 5093 -InformationLevel Quiet -WarningAction SilentlyContinue  # relay port, not ping
                     if ($isPing) {
                         Log "$tag License server ($($cfg.spss.licenseServer)) reachable: OK" 'Green'
                     } else {
                         Log "$tag [!] License server ($($cfg.spss.licenseServer)) unreachable!" 'Yellow'
-                        Log "      -> Must connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443) even when inside campus" 'Yellow'
+                        Log "      -> Check SpssLicenseRelay on Server 72 (TCP/UDP 5093), or connect Fortinet SPSS VPN (gwspss.nsru.ac.th:10443)" 'Yellow'
                     }
                 }
                 elseif ($pkg.name -like '*Office*' -or $pkg.displayNameMatch -like '*Office*') {
@@ -1189,12 +1189,13 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
                 Log 'SKIP: no SPSS or Amos installation found in Program Files or Registry' 'Yellow'
             } else {
                 Set-SpssLicense $sDirs $ls
-                $isPing = Test-Connection $ls -Count 1 -Quiet -ErrorAction SilentlyContinue
+                # TCP 5093 = Sentinel RMS port the relay on Server 72 forwards (ping says nothing about the relay)
+                $isPing = Test-NetConnection $ls -Port 5093 -InformationLevel Quiet -WarningAction SilentlyContinue
                 if ($isPing) {
                     Log "License server ($ls) reachable: OK" 'Green'
                 } else {
                     Log "[!] License server ($ls) unreachable!" 'Yellow'
-                    Log "    -> Must connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443) even when inside campus" 'Yellow'
+                    Log "    -> Check SpssLicenseRelay on Server 72 (TCP/UDP 5093), or connect Fortinet SPSS VPN (gwspss.nsru.ac.th:10443)" 'Yellow'
                 }
             }
         }
@@ -1236,8 +1237,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
             Log ("  {0}`n      lshost={1}  DaemonHost={2}" -f $sd, $(if ($curHost) { $curHost } else { 'none' }), $(if ($infHost) { $infHost } else { 'none' }))
         }
         if ($cfg.spss.licenseServer) {
-            $pong = Test-Connection $cfg.spss.licenseServer -Count 1 -Quiet -ErrorAction SilentlyContinue
-            Log ("  SPSS license server ($($cfg.spss.licenseServer)) ping: {0}" -f $(if ($pong) { 'OK' } else { 'no reply (must connect Fortinet SPSS VPN: gwspss.nsru.ac.th even on campus)' })) $(if ($pong) { 'Green' } else { 'Yellow' })
+            $pong = Test-NetConnection $cfg.spss.licenseServer -Port 5093 -InformationLevel Quiet -WarningAction SilentlyContinue
+            Log ("  SPSS license server ($($cfg.spss.licenseServer)) TCP 5093: {0}" -f $(if ($pong) { 'OK' } else { 'UNREACHABLE (check SpssLicenseRelay on Server 72, or Fortinet SPSS VPN)' })) $(if ($pong) { 'Green' } else { 'Yellow' })
         }
     }
 
@@ -1695,7 +1696,7 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
             $spssNeedsFix = $false
             $sDirs = @(Get-SpssDirs)
             if ($sDirs.Count -gt 0) {
-                $isPing = Test-Connection $spssLs -Count 1 -Quiet -ErrorAction SilentlyContinue
+                $isPing = Test-NetConnection $spssLs -Port 5093 -InformationLevel Quiet -WarningAction SilentlyContinue  # relay port, not ping
                 foreach ($sd in $sDirs) {
                     $appName = Split-Path $sd -Leaf
                     $lshostFile = Join-Path $sd 'lshost'
@@ -1719,7 +1720,7 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
                     Write-Host "       License Server ($spssLs) Network Connection: OK (Connected)" -ForegroundColor Green
                 } else {
                     Write-Host "       [!] License Server ($spssLs): No network reply." -ForegroundColor Yellow
-                    Write-Host "           -> Must connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443) even when inside campus" -ForegroundColor Yellow
+                    Write-Host "           -> Check SpssLicenseRelay on Server 72 (TCP/UDP 5093), or connect Fortinet SPSS VPN (gwspss.nsru.ac.th:10443)" -ForegroundColor Yellow
                 }
             }
             Write-Host ''
@@ -1809,12 +1810,12 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
                         $sDirs = @(Get-SpssDirs)
                         if ($sDirs.Count -gt 0) {
                             Set-SpssLicense $sDirs $spssLs
-                            $isPing = Test-Connection $spssLs -Count 1 -Quiet -ErrorAction SilentlyContinue
+                            $isPing = Test-NetConnection $spssLs -Port 5093 -InformationLevel Quiet -WarningAction SilentlyContinue  # relay port, not ping
                             if ($isPing) {
                                 Log "  SPSS License Server ($spssLs) reachable: OK" 'Green'
                             } else {
                                 Log "  [!] SPSS License Server ($spssLs) unreachable!" 'Yellow'
-                                Log "      -> Must connect Fortinet VPN (gateway: gwspss.nsru.ac.th:10443) even when inside campus" 'Yellow'
+                                Log "      -> Check SpssLicenseRelay on Server 72 (TCP/UDP 5093), or connect Fortinet SPSS VPN (gwspss.nsru.ac.th:10443)" 'Yellow'
                             }
                         }
                     }
