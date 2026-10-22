@@ -710,6 +710,32 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
     $shareOk    = $false
     $why        = $null  # reason the share failed, shown in the Install menu (reset per menu pass)
     $strictShareTasks = @($tasks | Where-Object { $_ -in 'Install', 'Wallpaper', 'Certs', 'WinRARTheme' })
+    # Replace the stored share credential (same vault entry as cmdkey /add) without putting the password on a command line.
+    # A stale entry keeps failing on every run and in Explorer and locks labdeploy for every lab PC (threshold 10).
+    function Save-ShareCredential([string]$target, [pscredential]$cred) {
+        try {
+            if (-not ('LabCred.Native' -as [type])) {
+                Add-Type -Namespace LabCred -Name Native -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+public struct CREDENTIAL {
+    public int Flags; public int Type; public string TargetName; public string Comment;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
+    public int CredentialBlobSize; public IntPtr CredentialBlob; public int Persist;
+    public int AttributeCount; public IntPtr Attributes; public string TargetAlias; public string UserName;
+}
+[DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
+'@
+            }
+            $pw = $cred.GetNetworkCredential().Password
+            $c = New-Object LabCred.Native+CREDENTIAL
+            $c.Type = 2; $c.Persist = 3; $c.TargetName = $target; $c.UserName = $cred.UserName  # 2 = domain password, 3 = enterprise (as cmdkey)
+            $c.CredentialBlobSize = [Text.Encoding]::Unicode.GetByteCount($pw)
+            $c.CredentialBlob = [Runtime.InteropServices.Marshal]::StringToCoTaskMemUni($pw)
+            try { return [LabCred.Native]::CredWrite([ref]$c, 0) }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeCoTaskMemUnicode($c.CredentialBlob) }
+        } catch { return $false }
+    }
     # soft = try the share, fall back quietly (Fonts -> GitHub; KeepAlive/CrashWatcher -> local copy of net-auth.env / telemetry.token)
     $fontTask = @($tasks | Where-Object { $_ -in 'Fonts', 'KeepAlive', 'CrashWatcher' })
     if ($strictShareTasks -or $fontTask) {
@@ -729,7 +755,11 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         } elseif (Test-Path "$uncShare\manifest.json") {
             $shareOk = $true; Log "share OK: $uncShare (stored credential)"
         } else {
-            Log "No stored credential for $shareHost. Tip: cmdkey /add:$shareHost /user:$shareHost\$($cfg.deployUser) /pass" 'Yellow'
+            if (@(cmdkey "/list:$shareHost" 2>$null) -match 'User:') {
+                Log "Stored credential for $shareHost is wrong or outdated (labdeploy password changed?). Enter the new one - it replaces the stored one so this PC stops locking the account." 'Yellow'
+            } else {
+                Log "No stored credential for $shareHost. Tip: cmdkey /add:$shareHost /user:$shareHost\$($cfg.deployUser) /pass" 'Yellow'
+            }
             # unattended run with only soft tasks: never block on a credential dialog
             # (interactive CrashWatcher auto-install asks too: without the share there is no token and the PC never reaches LibDesk)
             $cred = if ($strictShareTasks -or $interactive) { Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare" } else { $null }
@@ -739,6 +769,10 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
                 try {
                     $shareDrive = New-PSDrive -Name LabDeploy -PSProvider FileSystem -Root $uncShare -Credential $cred -ErrorAction Stop
                     $share = 'LabDeploy:'; $shareOk = $true; Log "share OK: $uncShare"
+                    if (-not $dryRun) {
+                        if (Save-ShareCredential $shareHost $cred) { Log "Saved $shareHost credential for next runs (replaces cmdkey entry)" 'Green' }
+                        else { Log "Could not save credential - run: cmdkey /add:$shareHost /user:$($cred.UserName) /pass" 'Yellow' }
+                    }
                 } catch {
                     $m = $_.Exception.Message
                     $why = if ($m -match 'locked out') { 'account is locked out on server (ใส่รหัสผิดเกินจำนวนครั้ง บัญชี labdeploy ถูกล็อกที่ Server 72)' }
@@ -1301,7 +1335,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         $netAuthDir = Join-Path $root 'net-auth'
         if (-not (Test-Path $netAuthDir)) { New-Item -ItemType Directory -Force -Path $netAuthDir | Out-Null }
         $localEnv = Join-Path $root 'net-auth.env'
-        $shareEnv = if ($shareOk) { Join-Path $share 'net-auth.env' } else { "\\$shareHost\LabDeploy\net-auth.env" }
+        # share not connected = no UNC retry (a failed SMB logon with a stale password counts toward the labdeploy lockout)
+        $shareEnv = if ($shareOk) { Join-Path $share 'net-auth.env' } else { $null }
 
         $kaAction = if (-not $interactive) { '1' } else { $null }
         if ($interactive -and -not $kaAction) {
@@ -1321,7 +1356,7 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
             else { Write-Host "Not installed" -ForegroundColor DarkGray }
             Write-Host "  Credentials (net-auth.env): " -NoNewline
             if (Test-Path $localEnv) { Write-Host "Found locally ($localEnv)" -ForegroundColor Green }
-            elseif (Test-Path $shareEnv) { Write-Host "Found on Server 72 ($shareEnv)" -ForegroundColor Green }
+            elseif ($shareEnv -and (Test-Path $shareEnv)) { Write-Host "Found on Server 72 ($shareEnv)" -ForegroundColor Green }
             else { Write-Host "Not found" -ForegroundColor Yellow }
             Write-Host ""
 
@@ -1518,7 +1553,7 @@ End If
             # Token: SYSTEM task cannot see the admin's env, so keep it in a file only SYSTEM/Administrators can read
             # Source order: share file (same pattern as net-auth.env, protected by the labdeploy cmdkey credential) > env > prompt
             $tokFile = Join-Path $root 'telemetry.token'
-            $shareTok = if ($shareOk) { Join-Path $share 'telemetry.token' } else { "\\$shareHost\LabDeploy\telemetry.token" }
+            $shareTok = if ($shareOk) { Join-Path $share 'telemetry.token' } else { $null }  # no UNC retry, see $shareEnv
             if (-not (Sync-ShareFile $shareTok $tokFile 'telemetry.token')) {
                 $tok = $env:LAB_TELEMETRY_TOKEN
                 if (-not $tok -and $interactive) {
