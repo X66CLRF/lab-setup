@@ -17,6 +17,16 @@ First time on a PC it asks once for the `labdeploy` share password, then shows t
 On a lab PC open `\\192.168.0.72\LabDeploy\lab\` and double-click **run.cmd** (asks for admin, then shows the menu).
 Config is read from `config.json` next to `lab.ps1` on the share, so edits there apply immediately.
 
+## Run (campus LAN, no internet login yet)
+
+A PC that is not logged in to the captive portal cannot reach GitHub: `irm …github.io…` returns the portal login page and fails with `System.Xml.XmlDocument is not recognized`. Use the LAN copy on Server 72 (same `lab.ps1`, same SHA256 check):
+
+```powershell
+irm https://libdesk.nsru.ac.th/lab-setup/go.txt | iex
+```
+
+Served by an IIS virtual directory `/lab-setup` under the libdesk site -> `C:\Websites\static\lab-setup\` (`go.txt` = `go-lan.txt`, `lab.ps1`, `config.json`, `web.config` from `lan/`). Public files only; secrets stay on the LabDeploy share.
+
 ## Run (alternative: pinned GitHub copy, SHA256 checked)
 
 PowerShell **as Administrator**:
@@ -80,5 +90,18 @@ Exit codes: 0 ok, 1 not admin / config / host guard, 2 share connect, 3 manifest
 ```
 
 Then commit, create tag `v1.1` on that commit, push commit + tag.
+
+### Publish to Server 72
+
+Copy the files **from the tag** (`git show v1.1:<path>`, so hashes match `go.txt` byte for byte), keeping the old share files as `<name>.bak-pre<tag>-<time>`:
+
+| From the tag | To Server 72 |
+| :--- | :--- |
+| `lab.ps1`, `config.json` | `C:\LabDeploy\lab\` and `C:\Websites\static\lab-setup\` |
+| `net-auth/KeepAlive.ps1` | `C:\LabDeploy\net-auth\` |
+| `go-lan.txt` | `C:\Websites\static\lab-setup\go.txt` |
+| `lan/web.config` | `C:\Websites\static\lab-setup\web.config` |
+
+Check: `irm https://libdesk.nsru.ac.th/lab-setup/go.txt` shows the new SHA256, and the hash of `…/lab-setup/lab.ps1` equals it.
 
 Installers, license keys and `manifest.json` live on the internal share, never in this repo.

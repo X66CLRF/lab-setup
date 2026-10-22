@@ -1,7 +1,7 @@
 # release.ps1 - pin lab.ps1/config.json to a tag and write go.txt (the short bootstrap) with lab.ps1's SHA256.
 # Usage (in this repo):  .\release.ps1 -Tag v1.1
 # Then commit, create tag <Tag> on that commit, push commit + tag (GitHub Desktop: History > right-click > Create Tag).
-param([Parameter(Mandatory)][string]$Tag, [string]$User = 'X66CLRF', [string]$Repo = 'lab-setup')
+param([Parameter(Mandatory)][string]$Tag, [string]$User = 'X66CLRF', [string]$Repo = 'lab-setup', [string]$LanHost = 'libdesk.nsru.ac.th')
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $utf8Bom   = New-Object Text.UTF8Encoding $true
@@ -33,7 +33,23 @@ Invoke-Expression ([Text.Encoding]::UTF8.GetString(`$b).TrimStart([char]0xFEFF))
 "@
 [IO.File]::WriteAllText("$PSScriptRoot\go.txt", ($go -replace "`r`n", "`n"), $utf8NoBom)
 if (-not (Test-Path "$PSScriptRoot\.nojekyll")) { [IO.File]::WriteAllText("$PSScriptRoot\.nojekyll", '', $utf8NoBom) }
-git add lab.ps1 go.txt .nojekyll | Out-Null
+
+# 4. LAN bootstrap: same lab.ps1 + config.json served by IIS on Server 72, for PCs not yet logged in to the
+#    captive portal (GitHub unreachable). Copied there as C:\Websites\static\lab-setup\go.txt (README: Publish to Server 72).
+$goLan = @"
+# Lab setup bootstrap over the campus LAN (no internet login needed). Run in PowerShell as Administrator:
+#   irm https://$LanHost/lab-setup/go.txt | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+`$env:LAB_CONFIG = 'https://$LanHost/lab-setup/config.json'
+`$u = 'https://$LanHost/lab-setup/lab.ps1'
+`$h = '$hash'
+`$b = (Invoke-WebRequest `$u -UseBasicParsing).RawContentStream.ToArray()
+`$got = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash(`$b)) -replace '-'
+if (`$got -ne `$h) { Write-Host "STOP: lab.ps1 hash mismatch (`$got). Not running." -ForegroundColor Red; return }
+Invoke-Expression ([Text.Encoding]::UTF8.GetString(`$b).TrimStart([char]0xFEFF))
+"@
+[IO.File]::WriteAllText("$PSScriptRoot\go-lan.txt", ($goLan -replace "`r`n", "`n"), $utf8NoBom)
+git add lab.ps1 go.txt go-lan.txt .nojekyll | Out-Null
 
 Write-Host "Tag $Tag  lab.ps1 SHA256 $hash"
-Write-Host "Next: commit, create tag '$Tag' on that commit, push commit + tag."
+Write-Host "Next: commit, create tag '$Tag' on that commit, push commit + tag, then copy to Server 72 (README: Publish to Server 72)"
