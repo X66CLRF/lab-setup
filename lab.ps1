@@ -191,6 +191,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
             } catch { Log "FAIL copy $label from share: $($_.Exception.Message)" 'Yellow' }
         } elseif (Test-Path $dst) {
             Log "[i] $label not reachable on Server 72 - keeping local copy" 'DarkGray'
+        } elseif (-not $src) {
+            Log "[i] $label not copied: share not connected (see the share line above: wrong/locked labdeploy password or port 445)" 'Yellow'
         } else {
             Log "[i] $label not found on Server 72 ($src). Check: cmdkey /list (labdeploy for $shareHost), port 445, or 'net use * /delete' if connected as another user." 'Yellow'
         }
