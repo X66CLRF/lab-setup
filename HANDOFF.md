@@ -1,6 +1,6 @@
 # HANDOFF — แก้บั๊ก lab-setup & เพิ่ม winget upgrade --all + StopSignIn + RemoveAI + SPSS Relay + KeepAlive Wake
 
-- **สถานะ:** เสร็จสิ้น (รอ Claude ตรวจ L3 หรือ merge เข้า main)
+- **สถานะ:** ปิด 2026-10-22 — Claude Code ตรวจแล้ว รวมกับ `fix/telemetry-visible` ออก v1.5 · แก้เพิ่มตอนตรวจ: KeepAlive `-Once` (เมนูทดสอบ) ไม่ฆ่า daemon ที่รันอยู่ · ข้อความ share ไม่ต่อในเมนู Install มีเหตุผลเสมอ · SPSS relay บน Server 72 ตรวจแล้ว (service Running, TCP/UDP 5093, firewall, ต้นทาง 192.168.3.10 ต่อได้)
 - **ระดับ:** L2 · **ดำเนินการโดย:** Antigravity 2026-10-22
 - **เครื่อง:** ASUS
 - **branch:** handoff/fix-winrar-syntax
