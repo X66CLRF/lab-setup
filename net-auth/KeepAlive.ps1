@@ -51,23 +51,27 @@ $cfg = @{}
 foreach ($cand in $envCandidates) {
     if (Test-Path $cand) {
         try {
+            $found = $false
             Get-Content $cand -Encoding UTF8 | ForEach-Object {
                 $trimmed = $_.Trim()
                 if ($trimmed -and -not $trimmed.StartsWith('#') -and $trimmed -match '^([^=]+)=(.*)$') {
                     $k = $matches[1].Trim().ToUpper()
                     $v = $matches[2].Trim()
                     $cfg[$k] = $v
+                    $found = $true
                 }
             }
-            # Cache locally if read from share
-            $localEnv = Join-Path $dataDir 'net-auth.env'
-            if ($cand -ne $localEnv -and -not (Test-Path $localEnv)) {
-                try {
-                    Copy-Item $cand $localEnv -Force
-                    icacls $localEnv /inheritance:r /grant:r 'Administrators:(F)' 'SYSTEM:(F)' | Out-Null
-                } catch {}
+            if ($found) {
+                # Cache locally if read from share
+                $localEnv = Join-Path $dataDir 'net-auth.env'
+                if ($cand -ne $localEnv -and -not (Test-Path $localEnv)) {
+                    try {
+                        Copy-Item $cand $localEnv -Force
+                        icacls $localEnv /inheritance:r /grant:r 'Administrators:(F)' 'SYSTEM:(F)' | Out-Null
+                    } catch {}
+                }
+                break
             }
-            break
         } catch {}
     }
 }
@@ -161,7 +165,7 @@ if ($online) {
 }
 
 if ($Once) {
-    Exit (if (Test-Internet) { 0 } else { 1 })
+    if (Test-Internet) { exit 0 } else { exit 1 }
 }
 
 # Daemon loop
