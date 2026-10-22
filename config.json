@@ -90,7 +90,7 @@
     ]
   },
   "spss": {
-    "licenseServer": "192.168.3.10"
+    "licenseServer": "192.168.0.72"
   },
   "vpn": [
     {

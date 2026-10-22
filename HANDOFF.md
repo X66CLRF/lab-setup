@@ -1,7 +1,7 @@
-# HANDOFF — แก้บั๊ก lab-setup & เพิ่ม winget upgrade --all + StopSignIn + RemoveAI + ปรับหน้าเว็บ
+# HANDOFF — แก้บั๊ก lab-setup & เพิ่ม winget upgrade --all + StopSignIn + RemoveAI + SPSS Relay + KeepAlive Wake
 
 - **สถานะ:** เสร็จสิ้น (รอ Claude ตรวจ L3 หรือ merge เข้า main)
-- **ระดับ:** L2 · **ดำเนินการโดย:** Antigravity 2026-10-21
+- **ระดับ:** L2 · **ดำเนินการโดย:** Antigravity 2026-10-22
 - **เครื่อง:** ASUS
 - **branch:** handoff/fix-winrar-syntax
 
@@ -45,9 +45,20 @@
    - ลบปุ่มดาวน์โหลด `setup.bat` ออกตามคำสั่งผู้ใช้
    - เหลือเฉพาะกล่องคัดลอกคำสั่ง `irm x66clrf.github.io/lab-setup/go.txt | iex` เพียงอย่างเดียว
 
-9. **เซิร์ฟเวอร์ Server 72:**
-   - ปลดล็อกบัญชี `labdeploy` ผ่าน SSH แล้ว (`Account active: Yes`)
-   - ขยายขีดจำกัดแชร์ `LabDeploy` ผ่าน SSH แล้ว (`Maximum users: No limit`)
+9. **SPSS License Relay ข้าม FortiClient VPN (ทางเลือกที่ 1 สำเร็จ):**
+   - จัดตั้ง Service `SpssLicenseRelay` บน Server 72 (`192.168.0.72`) ผ่าน NSSM
+   - รันสคริปต์ Node.js รีเลย์พอร์ต 5093 (ทั้ง TCP และ UDP Sentinel RMS) ไปยัง `192.168.3.10:5093`
+   - เปิด Windows Firewall พอร์ต 5093 (TCP & UDP) บน Server 72
+   - ปรับ `config.json` ให้ `spss.licenseServer` ชี้มาที่ `192.168.0.72` ทำให้เครื่องแล็บใช้งาน SPSS ได้โดยไม่ต้องเปิดหรือต่อ FortiClient VPN
+
+10. **แก้ไข KeepAlive ไม่ทำงานหลังปลุกเครื่องจาก Sleep:**
+    - `KeepAlive.ps1`: ป้องกันโปรเซสซ้ำซ้อน (ตรวจจับและปิดโปรเซสเดิม), เมื่อเน็ตหลุด/ออฟไลน์ปรับเป็น retry ทุก 10 วินาทีทันทีแทนที่จะรอ 90 วินาที
+    - `lab.ps1`: ปรับ `Lab_AutoWake` ให้หน่วงรอเน็ต 8 วินาทีแล้วสั่งเรียก `Start-ScheduledTask -TaskName NSRU-KeepAlive`
+    - `lab.ps1`: เพิ่ม `ExecutionTimeLimit = 0` (ไม่ให้ Task Scheduler ตัดจบหลัง 72 ชม.) พร้อมแทรก `EventTrigger` ตรวจจับ System Resume (Power-Troubleshooter Event 1) ใน Task Scheduler ของเครื่อง
+
+11. **เซิร์ฟเวอร์ Server 72:**
+    - ปลดล็อกบัญชี `labdeploy` ผ่าน SSH แล้ว (`Account active: Yes`)
+    - ขยายขีดจำกัดแชร์ `LabDeploy` ผ่าน SSH แล้ว (`Maximum users: No limit`)
 
 ---
 

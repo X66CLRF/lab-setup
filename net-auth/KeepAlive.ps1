@@ -13,6 +13,14 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 
+# Kill any duplicate KeepAlive processes to avoid conflicts
+try {
+    $myPid = $PID
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessId -ne $myPid -and $_.CommandLine -like '*KeepAlive.ps1*'
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+} catch {}
+
 $dataDir = Join-Path $env:ProgramData 'LabDeploy'
 if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force -Path $dataDir | Out-Null }
 $logFile = Join-Path $dataDir 'keepalive.log'
@@ -169,8 +177,6 @@ while ($true) {
         }
     }
 
-    Start-Sleep -Seconds $IntervalSec
-
     $isUp = Test-Internet
     if ($isUp) {
         if ($token) {
@@ -181,14 +187,17 @@ while ($true) {
                 Write-Log "Re-login result: $(if ($token) { 'OK' } else { 'FAILED' })"
             }
         }
+        Start-Sleep -Seconds $IntervalSec
     } else {
         Write-Log "Connection dropped. Re-authenticating..."
         $redir = Get-RedirectUrl
         $token = Invoke-Login $redir
         if (Test-Internet) {
             Write-Log "Re-connected successfully."
+            Start-Sleep -Seconds $IntervalSec
         } else {
-            Write-Log "Re-connection attempt failed."
+            Write-Log "Re-connection attempt failed. Retrying in 10s..."
+            Start-Sleep -Seconds 10
         }
     }
 }

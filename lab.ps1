@@ -1250,7 +1250,7 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
             $sleepAct = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.Application]::SetSuspendState([System.Windows.Forms.PowerState]::Suspend, `$false, `$false)`""
             $sleepTrg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $days -At '16:40'
             $sleepSet = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-            $wakeAct = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c exit 0'
+            $wakeAct = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"Start-Sleep -Seconds 8; Start-ScheduledTask -TaskName 'NSRU-KeepAlive' -ErrorAction SilentlyContinue`""
             $wakeTrg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $days -At '08:20'
             $wakeSet = New-ScheduledTaskSettingsSet -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
             try {
@@ -1420,13 +1420,28 @@ End If
             $trigStartup = New-ScheduledTaskTrigger -AtStartup
             $trigLogon   = New-ScheduledTaskTrigger -AtLogOn
             $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
 
             try {
                 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
                 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($trigStartup, $trigLogon) -Principal $principal -Settings $settings -Force | Out-Null
+
+                # Add wake-from-sleep trigger (System Resume event) so KeepAlive triggers after sleep/wake
+                try {
+                    [xml]$taskXml = Export-ScheduledTask -TaskName $taskName
+                    $eventNode = $taskXml.CreateElement('EventTrigger', $taskXml.Task.Triggers.NamespaceURI)
+                    $enabledNode = $taskXml.CreateElement('Enabled', $taskXml.Task.Triggers.NamespaceURI)
+                    $enabledNode.InnerText = 'true'
+                    $eventNode.AppendChild($enabledNode) | Out-Null
+                    $subNode = $taskXml.CreateElement('Subscription', $taskXml.Task.Triggers.NamespaceURI)
+                    $subNode.InnerText = '<QueryList><Query Id="0" Path="System"><Select Path="System">*[System[Provider[@Name=''Microsoft-Windows-Power-Troubleshooter''] and (EventID=1)]]</Select></Query></QueryList>'
+                    $eventNode.AppendChild($subNode) | Out-Null
+                    $taskXml.Task.Triggers.AppendChild($eventNode) | Out-Null
+                    Register-ScheduledTask -TaskName $taskName -Xml $taskXml.OuterXml -Force | Out-Null
+                } catch {}
+
                 Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-                Log "KeepAlive task '$taskName' installed & started successfully (100% hidden background, runs as SYSTEM on boot/logon)." 'Green'
+                Log "KeepAlive task '$taskName' installed & started successfully (100% hidden background, runs as SYSTEM on boot/logon/wake)." 'Green'
             } catch {
                 Log "FAIL register task: $($_.Exception.Message)" 'Red'
             }
