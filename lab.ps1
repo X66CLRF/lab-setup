@@ -126,10 +126,13 @@ function Get-LabTelemetryToken {
     if ($env:LAB_TELEMETRY_TOKEN) { return $env:LAB_TELEMETRY_TOKEN.Trim() }
     return $null
 }
+# Failure reason of the last Send-LabEvent ($null = sent) so callers can show why a PC never shows up in LibDesk
+$global:LabSendError = $null
 function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy) {
     $token = Get-LabTelemetryToken
     $hw = Get-LabHardwareId
-    if (-not $token -or -not $hw) { return $false }
+    if (-not $token) { $global:LabSendError = "no telemetry token ($env:ProgramData\LabDeploy\telemetry.token missing - share not connected at install)"; return $false }
+    if (-not $hw) { $global:LabSendError = 'no hardware ID (BIOS serial / MAC / UUID unreadable)'; return $false }
     if ($detail) { $detail = [string]$detail; if ($detail.Length -gt 3500) { $detail = $detail.Substring(0, 3500) } }
     $body = [PSCustomObject]@{
         campus      = $campus
@@ -145,8 +148,20 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072  # TLS 1.2
         # bytes, not string: PS 5.1 sends string bodies as ISO-8859-1 and Thai titles arrive garbled
         Invoke-RestMethod -Uri $url -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json; charset=utf-8' -Headers @{ 'X-Lab-Token' = $token } -TimeoutSec 5 -UseBasicParsing | Out-Null
+        $global:LabSendError = $null
         return $true
-    } catch { return $false }
+    } catch {
+        $code = try { [int]$_.Exception.Response.StatusCode } catch { 0 }
+        $msg = $_.Exception.Message  # inside switch $_ is the switch value
+        $global:LabSendError = switch ($code) {
+            401 { 'HTTP 401 - token rejected (telemetry.token differs from LAB_TELEMETRY_TOKEN on the server)' }
+            403 { 'HTTP 403 - this network is not in LAB_TELEMETRY_ALLOW_CIDRS' }
+            429 { 'HTTP 429 - too many reports, try again in 10 minutes' }
+            0   { "network: $msg ($url)" }
+            default { "HTTP $code from $url" }
+        }
+        return $false
+    }
 }
 '@
     . ([ScriptBlock]::Create($LabTelemetryHelpers))
@@ -188,7 +203,10 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
                             elseif ($env:LAB_TELEMETRY_URL) { $env:LAB_TELEMETRY_URL }
                             else { "https://libdesk.nsru.ac.th/api/computer-lab/telemetry" }
             $camp = if ($cfg -and $cfg.campus) { $cfg.campus } else { "city" }
-            Send-LabEvent $telemetryUrl $camp $eventType $title $detail $env:USERNAME
+            $sent = Send-LabEvent $telemetryUrl $camp $eventType $title $detail $env:USERNAME
+            if ($sent) { Log "LibDesk: report sent ($env:COMPUTERNAME)" 'DarkGray' }
+            else { Log "LibDesk: report NOT sent - $global:LabSendError" 'Yellow' }
+            $sent
         } catch { $false }
     }
 
@@ -403,7 +421,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
     # ("ยังไม่จัดกลุ่ม") without anyone picking it from the menu. Opt out: $env:LAB_NO_AUTO_CW='1'
     $cwAutoPending = $env:LAB_NO_AUTO_CW -ne '1' -and (
         -not (Get-ScheduledTask -TaskName 'Lab_CrashWatcher' -ErrorAction SilentlyContinue) -or
-        -not (Test-Path (Join-Path $env:ProgramData 'LabDeploy\crash-watch.ps1')))
+        -not (Test-Path (Join-Path $env:ProgramData 'LabDeploy\crash-watch.ps1')) -or
+        -not (Test-Path (Join-Path $env:ProgramData 'LabDeploy\telemetry.token')))
     while ($true) {
         $global:LabExitCode = 0
         $tasks = @()
@@ -711,7 +730,8 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         } else {
             Log "No stored credential for $shareHost. Tip: cmdkey /add:$shareHost /user:$shareHost\$($cfg.deployUser) /pass" 'Yellow'
             # unattended run with only soft tasks: never block on a credential dialog
-            $cred = if ($strictShareTasks -or ($interactive -and -not $cwAuto)) { Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare" } else { $null }
+            # (interactive CrashWatcher auto-install asks too: without the share there is no token and the PC never reaches LibDesk)
+            $cred = if ($strictShareTasks -or $interactive) { Get-Credential -UserName "$shareHost\$($cfg.deployUser)" -Message "Password for $uncShare" } else { $null }
             if (-not $cred) {
                 if ($strictShareTasks) { Log 'FAIL: no credential given' 'Red'; $global:LabExitCode = 2 }
             } else {
@@ -731,6 +751,7 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
                 }
             }
         }
+        if ($shareOk) { Sync-ShareFile (Join-Path $share 'telemetry.token') (Join-Path $root 'telemetry.token') 'telemetry.token' | Out-Null }
     }
 
     # ============ Install: read manifest + choose programs ============
@@ -1498,7 +1519,7 @@ End If
             $shareTok = if ($shareOk) { Join-Path $share 'telemetry.token' } else { "\\$shareHost\LabDeploy\telemetry.token" }
             if (-not (Sync-ShareFile $shareTok $tokFile 'telemetry.token')) {
                 $tok = $env:LAB_TELEMETRY_TOKEN
-                if (-not $tok -and $interactive -and -not $cwAuto) {
+                if (-not $tok -and $interactive) {
                     $sec = Read-Host "  LibDesk telemetry token (LAB_TELEMETRY_TOKEN, Enter = skip)" -AsSecureString
                     $tok = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
                 }
