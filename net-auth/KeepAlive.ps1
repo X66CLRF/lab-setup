@@ -13,13 +13,13 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Kill any duplicate KeepAlive processes to avoid conflicts
-try {
+# Kill any duplicate KeepAlive daemons to avoid conflicts (not for -Once: the menu test must leave the running daemon alone)
+if (-not $Once) { try {
     $myPid = $PID
     Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessId -ne $myPid -and $_.CommandLine -like '*KeepAlive.ps1*'
     } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-} catch {}
+} catch {} }
 
 $dataDir = Join-Path $env:ProgramData 'LabDeploy'
 if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force -Path $dataDir | Out-Null }

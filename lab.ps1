@@ -708,6 +708,7 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
     $share      = $uncShare
     $shareDrive = $null
     $shareOk    = $false
+    $why        = $null  # reason the share failed, shown in the Install menu (reset per menu pass)
     $strictShareTasks = @($tasks | Where-Object { $_ -in 'Install', 'Wallpaper', 'Certs', 'WinRARTheme' })
     # soft = try the share, fall back quietly (Fonts -> GitHub; KeepAlive/CrashWatcher -> local copy of net-auth.env / telemetry.token)
     $fontTask = @($tasks | Where-Object { $_ -in 'Fonts', 'KeepAlive', 'CrashWatcher' })
@@ -771,7 +772,7 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
             $items += [pscustomobject]@{ Kind = 'winget'; Ref = $id; Label = ("{0,-48} {1}" -f $id, 'winget (latest)') }
         }
         if (-not $shareOk) {
-            Write-Host "  [!] ไม่สามารถเชื่อมต่อ Server 72 ($uncShare) ได้: $why" -ForegroundColor Red
+            Write-Host "  [!] ไม่สามารถเชื่อมต่อ Server 72 ($uncShare) ได้: $(if ($why) { $why } else { 'port 445 ถูกปิด หรือไม่ได้ใส่รหัส labdeploy' })" -ForegroundColor Red
             Write-Host "      โปรแกรมหลักจากแชร์ (Office, SPSS ฯลฯ) จะไม่แสดงในรายการ (แสดงเฉพาะ Winget)" -ForegroundColor Yellow
         }
 
