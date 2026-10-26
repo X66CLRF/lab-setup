@@ -98,7 +98,7 @@ Copy the files **from the tag** (`git show v1.1:<path>`, so hashes match `go.txt
 | From the tag | To Server 72 |
 | :--- | :--- |
 | `lab.ps1`, `config.json` | `C:\LabDeploy\lab\` and `C:\Websites\static\lab-setup\` |
-| `net-auth/KeepAlive.ps1` | `C:\LabDeploy\net-auth\` |
+| `net-auth/KeepAlive.ps1`, `net-auth/KeepAlive.js`, `net-auth/launch.vbs` | `C:\LabDeploy\net-auth\` |
 | `go-lan.txt` | `C:\Websites\static\lab-setup\go.txt` |
 | `lan/web.config` | `C:\Websites\static\lab-setup\web.config` |
 

@@ -1458,6 +1458,9 @@ STOP_HOUR=-1
                 $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.8/net-auth/KeepAlive.ps1"
                 try { Invoke-WebRequest $kaUrl -OutFile $dstKaPs1 -UseBasicParsing -TimeoutSec 10 } catch {}
             }
+            if (-not (Test-Path (Join-Path $netAuthDir 'KeepAlive.js'))) {
+                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.8/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
+            }
             if (-not (Test-Path $dstLaunchVbs)) {
                 $vbsContent = @'
 Set WshShell = CreateObject("WScript.Shell")
