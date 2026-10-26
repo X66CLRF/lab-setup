@@ -13,11 +13,11 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Kill any duplicate KeepAlive daemons to avoid conflicts (not for -Once: the menu test must leave the running daemon alone)
+# Kill any duplicate KeepAlive daemons (powershell wrapper AND its node child) to avoid conflicts (not for -Once: the menu test must leave the running daemon alone)
 if (-not $Once) { try {
     $myPid = $PID
-    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
-        $_.ProcessId -ne $myPid -and $_.CommandLine -like '*KeepAlive.ps1*'
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'node.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessId -ne $myPid -and ($_.CommandLine -like '*KeepAlive.ps1*' -or $_.CommandLine -like '*net-auth*KeepAlive.js*')
     } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 } catch {} }
 
@@ -92,6 +92,24 @@ if (-not $user -or -not $pass) {
     Write-Log "FAIL: No credentials found in net-auth.env (NSRU_USER / NSRU_PASS missing)."
     Exit 1
 }
+
+# Preferred engine: Node.js. Windows Schannel (PowerShell .NET / curl.exe) is closed by the portal's TLS
+# ("connection closed unexpectedly"); Node's OpenSSL connects fine. Falls back to curl.exe when node is absent.
+$nodeExe = (Get-Command 'node.exe' -ErrorAction SilentlyContinue).Source
+if (-not $nodeExe -and (Test-Path "$env:ProgramFiles\nodejs\node.exe")) { $nodeExe = "$env:ProgramFiles\nodejs\node.exe" }
+$jsScript = Join-Path $PSScriptRoot 'KeepAlive.js'
+if ($nodeExe -and (Test-Path $jsScript)) {
+    Write-Log "Engine: node ($nodeExe)"
+    $env:NSRU_USER = $user
+    $env:NSRU_PASS = $pass
+    $nodeArgs = @($jsScript, '--portal', $portalUrl, '--interval', $IntervalSec, '--stop-hour', $StopHour, '--log', $logFile)
+    if ($Once) { $nodeArgs += '--once' }
+    & $nodeExe @nodeArgs
+    $code = $LASTEXITCODE
+    Remove-Item Env:\NSRU_USER, Env:\NSRU_PASS -ErrorAction SilentlyContinue
+    exit $code
+}
+Write-Log "Engine: curl.exe (node.exe not found - install Node.js LTS if login fails with curl 35 / TLS errors)"
 
 $curl = (Get-Command 'curl.exe' -ErrorAction SilentlyContinue).Source
 if (-not $curl) { $curl = "$env:SystemRoot\System32\curl.exe" }

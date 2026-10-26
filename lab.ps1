@@ -1443,6 +1443,16 @@ STOP_HOUR=-1
 
             if ($srcKaPs1 -and (Test-Path $srcKaPs1)) { Copy-Item $srcKaPs1 $dstKaPs1 -Force }
             if ($srcLaunchVbs -and (Test-Path $srcLaunchVbs)) { Copy-Item $srcLaunchVbs $dstLaunchVbs -Force }
+            # Node engine (portal TLS rejects Schannel/curl.exe); optional - KeepAlive.ps1 falls back to curl without it
+            $srcKaJs = if ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'net-auth\KeepAlive.js'))) { Join-Path $LabScriptDir 'net-auth\KeepAlive.js' }
+                       elseif ($shareOk -and (Test-Path (Join-Path $share 'net-auth\KeepAlive.js'))) { Join-Path $share 'net-auth\KeepAlive.js' }
+                       else { $null }
+            if ($srcKaJs) { Copy-Item $srcKaJs (Join-Path $netAuthDir 'KeepAlive.js') -Force }
+            if (-not (Get-Command node.exe -ErrorAction SilentlyContinue) -and -not (Test-Path "$env:ProgramFiles\nodejs\node.exe")) {
+                Log "Node.js not found - KeepAlive needs it (curl.exe cannot pass the portal TLS). Installing OpenJS.NodeJS.LTS via winget..." 'Yellow'
+                if ($dryRun) { Log "  [dry] winget install OpenJS.NodeJS.LTS" }
+                else { & { $ErrorActionPreference = 'Continue'; winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null } }
+            }
             # Fallback if downloaded directly from GitHub/URL
             if (-not (Test-Path $dstKaPs1)) {
                 $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.8/net-auth/KeepAlive.ps1"
@@ -1517,7 +1527,7 @@ End If
                 Log "Task '$taskName' not found or already removed." 'Yellow'
             }
             # Process objects have no CommandLine on PS 5.1 - query WMI instead
-            Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*KeepAlive.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*KeepAlive.ps1*' -or $_.CommandLine -like '*net-auth*KeepAlive.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         }
     }
 
