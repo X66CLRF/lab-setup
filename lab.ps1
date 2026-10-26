@@ -2,7 +2,7 @@
 # Run in PowerShell as Administrator (short bootstrap, verifies this file's SHA256):
 #   irm x66clrf.github.io/lab-setup/go.txt | iex
 # Direct:
-#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.9/lab.ps1 | iex
+#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.10/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
 #   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
@@ -13,7 +13,7 @@
 $LabScriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent }
 
 # Pin to main
-$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.9/config.json'
+$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.10/config.json'
 
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'
@@ -1146,7 +1146,7 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
                 $targetFile = Join-Path $tmpFontDir $fn
                 if (-not (Test-Path $targetFile)) {
                     $encodedFn = [Uri]::EscapeDataString($fn)
-                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.9/fonts/$encodedFn"
+                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.10/fonts/$encodedFn"
                     try { Invoke-WebRequest $url -OutFile $targetFile -UseBasicParsing -TimeoutSec 10 }
                     catch { Log "FAIL download font $fn : $($_.Exception.Message)" 'Yellow' }
                 }
@@ -1455,11 +1455,11 @@ STOP_HOUR=-1
             }
             # Fallback if downloaded directly from GitHub/URL
             if (-not (Test-Path $dstKaPs1)) {
-                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.9/net-auth/KeepAlive.ps1"
+                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.10/net-auth/KeepAlive.ps1"
                 try { Invoke-WebRequest $kaUrl -OutFile $dstKaPs1 -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path (Join-Path $netAuthDir 'KeepAlive.js'))) {
-                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.9/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
+                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.10/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path $dstLaunchVbs)) {
                 $vbsContent = @'
