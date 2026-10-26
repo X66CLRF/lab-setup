@@ -71,3 +71,20 @@
    ```
 2. Merge branch `handoff/fix-winrar-syntax` เข้า `main`
 3. รัน `release.ps1` หรือนำ `lab.ps1` และ `config.json` ไปวางที่ `\\192.168.0.72\LabDeploy\lab\`
+
+---
+
+## 2026-10-26 — KeepAlive / SPSS (session บนคลาวด์ ไม่เห็นเครื่องแล็บ/Server 72)
+
+**แก้แล้ว (บน branch `claude/fervent-ptolemy-si13le`, ยังไม่ได้ทดสอบบนเครื่องจริงทั้งหมด)**
+- `net-auth/KeepAlive.js` (ใหม่) + `KeepAlive.ps1` เรียก Node ก่อน, ถอยไป `curl.exe` ถ้าไม่มี Node — หลักฐานจาก log เก่า: PowerShell/.NET (Schannel) ล้ม "connection closed unexpectedly", Node (OpenSSL) ทำงานต่อเนื่อง ก.ค.–ต.ค.; `curl.exe` ของ Windows ใช้ Schannel จึงน่าจะล้มแบบเดียวกัน (ยังไม่ยืนยัน)
+- `launch.vbs` รอ daemon (`Run ..., 0, True`) → task `NSRU-KeepAlive` เป็น Running จริง; ตัวเลือก [3] ฆ่า daemon ผ่าน `Get-CimInstance` (PS 5.1 ไม่มี `CommandLine` ใน Process); kill-duplicate ฆ่าทั้ง powershell และ node
+- `lab.ps1` ตัวเลือก [1] คัดลอก `KeepAlive.js` และลง Node LTS ผ่าน winget ถ้าไม่มี
+- `PSDrive LabDeploy` สร้างแบบ `-Scope Global` (เดิม `Get-FileHash` ใน module scope มองไม่เห็น → error แดง "Cannot find drive 'LabDeploy'" ไม่ทำให้งานล้ม)
+- `collect-logs.ps1` (ใหม่) เก็บ log/สถานะแบบอ่านอย่างเดียว ปิดบังรหัสผ่าน/token → ไฟล์บน Desktop
+- main มี commit `fc61a94` ที่ใส่ข้อความ `git fetch origin ...` แทนเลข tag ใน URL — ถูกแทนด้วย merge `-s ours` แล้ว
+
+**ยังค้าง**
+1. **KeepAlive:** รอ `keepalive.log` หลังติดตั้งเวอร์ชันนี้ (ต้องเห็น `Engine: node` และ `Login SUCCESS`); ยังไม่ทราบว่า winget ลง Node สำเร็จบนเครื่องแล็บไหม
+2. **SPSS ไม่ใช้ VPN ไม่ได้:** `licenseServer=192.168.0.72` (relay → `192.168.3.10:5093`) ผ่านแค่เช็ก TCP 5093 แต่เปิดใช้งานผลิตภัณฑ์ไม่ได้ ต้องเปิด Fortinet เหมือนเดิม — สาเหตุยังไม่รู้ ต้องเทียบ `collect-logs.ps1` (ต่อ VPN / ไม่ต่อ VPN) + สคริปต์ relay บน Server 72 (NSSM `SpssLicenseRelay`) + log ของ service; สมมติฐาน: UDP/ลำดับ handshake ผ่าน relay, ค่า license address อื่นนอกจาก `LSHOST`, license ผูกชื่อ/IP ของ `192.168.3.10`
+3. **Release:** push tag `v1.10` เอง (sandbox คลาวด์ push tag ไม่ได้) แล้วคัดลอกไฟล์จาก tag ขึ้น Server 72 (README: Publish to Server 72 — รวม `KeepAlive.js`, `launch.vbs`); merge branch เข้า `main` หลัง push tag เท่านั้น (`go.txt` ชี้ tag)
