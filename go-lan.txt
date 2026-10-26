@@ -3,7 +3,7 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $env:LAB_CONFIG = 'https://libdesk.nsru.ac.th/lab-setup/config.json'
 $u = 'https://libdesk.nsru.ac.th/lab-setup/lab.ps1'
-$h = 'CD3553A13A87DA742C31F3B0A5996A5451F1CFEA5C8928AC0447DEDA5B2D81CE'
+$h = '864612EADB944A7DE3F5493D458A32A3EE86255497ECF6D133F732C81A0762DB'
 $b = (Invoke-WebRequest $u -UseBasicParsing).RawContentStream.ToArray()
 $got = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($b)) -replace '-'
 if ($got -ne $h) { Write-Host "STOP: lab.ps1 hash mismatch ($got). Not running." -ForegroundColor Red; return }
