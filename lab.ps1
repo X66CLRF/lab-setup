@@ -769,7 +769,7 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
                 if ($strictShareTasks) { Log 'FAIL: no credential given' 'Red'; $global:LabExitCode = 2 }
             } else {
                 try {
-                    $shareDrive = New-PSDrive -Name LabDeploy -PSProvider FileSystem -Root $uncShare -Credential $cred -ErrorAction Stop
+                    $shareDrive = New-PSDrive -Name LabDeploy -PSProvider FileSystem -Root $uncShare -Scope Global -Credential $cred -ErrorAction Stop
                     $share = 'LabDeploy:'; $shareOk = $true; Log "share OK: $uncShare"
                     if (-not $dryRun) {
                         if (Save-ShareCredential $shareHost $cred) { Log "Saved $shareHost credential for next runs (replaces cmdkey entry)" 'Green' }
@@ -1992,7 +1992,7 @@ WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hid
         Log 'Tune reverted: Balanced power plan & default visual effects restored' 'Green'
     }
 
-    if ($shareDrive) { Remove-PSDrive -Name LabDeploy -Force -ErrorAction SilentlyContinue; Log 'share disconnected' }
+    if ($shareDrive) { Remove-PSDrive -Name LabDeploy -Scope Global -Force -ErrorAction SilentlyContinue; Log 'share disconnected' }
     $statusLabel = if ($interactive) { "Task finished (code $global:LabExitCode)" } else { "Done (exit $global:LabExitCode)" }
     Log "$statusLabel. Log: $logFile" $(if ($global:LabExitCode) { 'Yellow' } else { 'Green' })
     # failed run = setup_action (not 'crash'): crash opens an incident on assigned machines in LibDesk
