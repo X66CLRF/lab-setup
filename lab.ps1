@@ -1456,7 +1456,7 @@ scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 psScript = scriptDir & "\KeepAlive.ps1"
 If fso.FileExists(psScript) Then
     cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & psScript & """"
-    WshShell.Run cmd, 0, False
+    WshShell.Run cmd, 0, True
 End If
 '@
                 Set-Content -Path $dstLaunchVbs -Value $vbsContent -Encoding ASCII
@@ -1516,7 +1516,8 @@ End If
             } catch {
                 Log "Task '$taskName' not found or already removed." 'Yellow'
             }
-            Get-Process powershell -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*KeepAlive.ps1*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+            # Process objects have no CommandLine on PS 5.1 - query WMI instead
+            Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*KeepAlive.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         }
     }
 
