@@ -5,7 +5,7 @@
 #   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.10/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
-#   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
+#   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch BrowserHome RevertBrowserHome SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
 # Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
 # CrashWatcher auto-installs on launch when missing; opt out:  $env:LAB_NO_AUTO_CW='1'
 
@@ -55,6 +55,8 @@ function Invoke-LabSetup {
             @{ Task = 'Wallpaper';           Label = 'Wallpaper (ตั้งค่า & ล็อกหน้าจอ / ปลดล็อก Wallpaper)' },
             @{ Task = 'BrowserSearch';       Label = 'BrowserSearch (ตั้งค่าค้นหาเริ่มต้น Google ในเบราว์เซอร์)' },
             @{ Task = 'RevertBrowserSearch'; Label = 'RevertBrowserSearch (ลบนโยบายค้นหา คืนสิทธิ์ให้เบราว์เซอร์เลือกเอง)' },
+            @{ Task = 'BrowserHome';         Label = 'BrowserHome (ตั้งให้เบราว์เซอร์เปิดหน้า YouTube ตอนเริ่ม - ห้องคาราโอเกะ)' },
+            @{ Task = 'RevertBrowserHome';   Label = 'RevertBrowserHome (ลบนโยบายหน้าเริ่มต้น คืนสิทธิ์ให้เบราว์เซอร์เลือกเอง)' },
             @{ Task = 'StopSignIn';          Label = 'Stop Sign-In (บล็อก Microsoft Account + ปิดป๊อปอัป Office + ปิด Browser Sync)' },
             @{ Task = 'RevertStopSignIn';    Label = 'RevertStopSignIn (คืนสิทธิ์ให้ Sign-in บัญชีได้ตามปกติ)' }
         )
@@ -669,6 +671,52 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
             else { Remove-Item $pj -Force -ErrorAction SilentlyContinue; Log '  Firefox policy removed' }
         }
         Log 'BrowserSearch reverted: policies removed (users can choose search engine freely)' 'Green'
+    }
+
+    # ============ BrowserHome: open YouTube on browser start (karaoke room) ============
+    if ($tasks -contains 'BrowserHome') {
+        Log '== BrowserHome ==' 'Cyan'
+        $homeUrl = 'https://www.youtube.com'
+        foreach ($pol in 'HKLM:\SOFTWARE\Policies\Google\Chrome', 'HKLM:\SOFTWARE\Policies\Microsoft\Edge') {
+            Set-Reg $pol 'RestoreOnStartup' 4 'DWord'
+            Set-Reg "$pol\RestoreOnStartupURLs" '1' $homeUrl 'String'
+            Set-Reg $pol 'HomepageLocation' $homeUrl 'String'
+            Set-Reg $pol 'HomepageIsNewTabPage' 0 'DWord'
+            Set-Reg $pol 'ShowHomeButton' 1 'DWord'
+            Log "  policy set: $pol"
+        }
+        $ffDir = "$env:ProgramFiles\Mozilla Firefox\distribution"
+        if (Test-Path "$env:ProgramFiles\Mozilla Firefox\firefox.exe") {
+            $pj = Join-Path $ffDir 'policies.json'
+            if (Test-Path $pj) { Log "  Firefox: $pj exists - add Homepage.URL=$homeUrl, StartPage=homepage manually" 'Yellow' }
+            elseif (-not $dryRun) {
+                New-Item -ItemType Directory -Force $ffDir | Out-Null
+                [IO.File]::WriteAllText($pj, '{"policies":{"Homepage":{"URL":"https://www.youtube.com","Locked":false,"StartPage":"homepage"}}}', (New-Object Text.UTF8Encoding $false))
+                Log '  Firefox policy set'
+            }
+        }
+        if (-not (Get-CimInstance Win32_ComputerSystem).PartOfDomain) {
+            Log '  NOTE: PC is not domain-joined. Chrome/Edge may ignore startup policies on unmanaged Windows - check chrome://policy and edge://policy' 'Yellow'
+        }
+    }
+
+    # ============ RevertBrowserHome: remove startup-page policies ============
+    if ($tasks -contains 'RevertBrowserHome') {
+        Log '== Revert BrowserHome (Remove policies) ==' 'Cyan'
+        foreach ($pol in 'HKLM:\SOFTWARE\Policies\Google\Chrome', 'HKLM:\SOFTWARE\Policies\Microsoft\Edge') {
+            if (-not (Test-Path $pol)) { continue }
+            if ($dryRun) { Log "  [dry] remove startup policies in $pol"; continue }
+            foreach ($k in 'RestoreOnStartup','HomepageLocation','HomepageIsNewTabPage','ShowHomeButton') {
+                Remove-ItemProperty $pol -Name $k -ErrorAction SilentlyContinue
+            }
+            Remove-Item "$pol\RestoreOnStartupURLs" -Recurse -Force -ErrorAction SilentlyContinue
+            Log "  policy removed: $pol"
+        }
+        $pj = Join-Path "$env:ProgramFiles\Mozilla Firefox\distribution" 'policies.json'
+        if ((Test-Path $pj) -and (Select-String $pj -Pattern '"Homepage"' -Quiet)) {
+            Log "  Firefox: $pj has Homepage policy - remove it manually (file may also hold search policy)" 'Yellow'
+        }
+        Log 'BrowserHome reverted: users can choose startup page freely' 'Green'
     }
 
     # ============ RemoveApps ============
