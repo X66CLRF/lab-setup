@@ -292,14 +292,27 @@
       <div class="action-section">
         <div class="section-label">PowerShell (Admin)</div>
 
-        <div class="cmd-wrapper" id="cmdBox" onclick="copyCommand()">
-          <span class="cmd-code" id="cmdText">irm x66clrf.github.io/lab-setup/go.txt | iex</span>
-          <button class="copy-btn" id="copyBtn" type="button" aria-label="Copy Command">
+        <div class="cmd-wrapper" id="cmdBox" onclick="copyCommand(this)">
+          <span class="cmd-code">irm x66clrf.github.io/lab-setup/go.txt | iex</span>
+          <button class="copy-btn" type="button" aria-label="Copy Command">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
-            <span id="copyBtnText">Copy</span>
+            <span class="copy-text">Copy</span>
+          </button>
+        </div>
+
+        <div class="section-label">เครื่องที่ยังไม่ล็อกอินอินเทอร์เน็ต (ใช้เครือข่ายภายใน มรนว.)</div>
+
+        <div class="cmd-wrapper" onclick="copyCommand(this)">
+          <span class="cmd-code">irm https://libdesk.nsru.ac.th/lab-setup/go.txt | iex</span>
+          <button class="copy-btn" type="button" aria-label="Copy Command">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span class="copy-text">Copy</span>
           </button>
         </div>
       </div>
@@ -321,11 +334,11 @@
   <!-- Three.js CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
-    function copyCommand() {
-      const text = document.getElementById('cmdText').innerText;
+    function copyCommand(box) {
+      const text = box.querySelector('.cmd-code').innerText;
       navigator.clipboard.writeText(text).then(() => {
-        const btn = document.getElementById('copyBtn');
-        const btnText = document.getElementById('copyBtnText');
+        const btn = box.querySelector('.copy-btn');
+        const btnText = box.querySelector('.copy-text');
         btn.classList.add('copied');
         btnText.innerText = 'Copied';
         setTimeout(() => {
