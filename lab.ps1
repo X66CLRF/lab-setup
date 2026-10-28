@@ -2,10 +2,10 @@
 # Run in PowerShell as Administrator (short bootstrap, verifies this file's SHA256):
 #   irm x66clrf.github.io/lab-setup/go.txt | iex
 # Direct:
-#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.11/lab.ps1 | iex
+#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.12/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
-#   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch BrowserHome RevertBrowserHome SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
+#   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch BrowserHome RevertBrowserHome BrowserAutoStart RevertBrowserAutoStart SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
 # Skip "type YES" before wiping data drives:  $env:LAB_YES='1'
 # CrashWatcher auto-installs on launch when missing; opt out:  $env:LAB_NO_AUTO_CW='1'
 
@@ -13,7 +13,7 @@
 $LabScriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent }
 
 # Pin to main
-$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.11/config.json'
+$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.12/config.json'
 
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'
@@ -57,6 +57,8 @@ function Invoke-LabSetup {
             @{ Task = 'RevertBrowserSearch'; Label = 'RevertBrowserSearch (ลบนโยบายค้นหา คืนสิทธิ์ให้เบราว์เซอร์เลือกเอง)' },
             @{ Task = 'BrowserHome';         Label = 'BrowserHome (ตั้งให้เบราว์เซอร์เปิดหน้า YouTube ตอนเริ่ม - ห้องคาราโอเกะ)' },
             @{ Task = 'RevertBrowserHome';   Label = 'RevertBrowserHome (ลบนโยบายหน้าเริ่มต้น คืนสิทธิ์ให้เบราว์เซอร์เลือกเอง)' },
+            @{ Task = 'BrowserAutoStart';    Label = 'BrowserAutoStart (เปิด Edge หน้า YouTube อัตโนมัติทุกครั้งที่ล็อกอินเข้า Windows - ห้องคาราโอเกะ)' },
+            @{ Task = 'RevertBrowserAutoStart'; Label = 'RevertBrowserAutoStart (ลบการเปิด Edge อัตโนมัติตอนเข้า Windows)' },
             @{ Task = 'StopSignIn';          Label = 'Stop Sign-In (บล็อก Microsoft Account + ปิดป๊อปอัป Office + ปิด Browser Sync)' },
             @{ Task = 'RevertStopSignIn';    Label = 'RevertStopSignIn (คืนสิทธิ์ให้ Sign-in บัญชีได้ตามปกติ)' }
         )
@@ -674,7 +676,7 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
     }
 
     # ============ BrowserHome: open YouTube on browser start (karaoke room) ============
-    if ($tasks -contains 'BrowserHome') {
+    if (($tasks -contains 'BrowserHome') -or ($tasks -contains 'BrowserAutoStart')) {
         Log '== BrowserHome ==' 'Cyan'
         $homeUrl = 'https://www.youtube.com'
         foreach ($pol in 'HKLM:\SOFTWARE\Policies\Google\Chrome', 'HKLM:\SOFTWARE\Policies\Microsoft\Edge') {
@@ -717,6 +719,30 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
             Log "  Firefox: $pj has Homepage policy - remove it manually (file may also hold search policy)" 'Yellow'
         }
         Log 'BrowserHome reverted: users can choose startup page freely' 'Green'
+    }
+
+    # ============ BrowserAutoStart: open Edge at every logon; the BrowserHome startup policy (applied above) shows YouTube once, so no URL here ============
+    $autoLnk = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\StartUp\Lab-YouTube.lnk'
+    if ($tasks -contains 'BrowserAutoStart') {
+        Log '== BrowserAutoStart ==' 'Cyan'
+        $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $edge) { Log '  Edge not found - skipped' 'Yellow' }
+        elseif ($dryRun) { Log "  [dry] shortcut $autoLnk -> $edge" }
+        else {
+            $sh = (New-Object -ComObject WScript.Shell).CreateShortcut($autoLnk)
+            $sh.TargetPath = $edge
+            $sh.Save()
+            Log "  startup shortcut (all users): $autoLnk" 'Green'
+        }
+    }
+
+    # ============ RevertBrowserAutoStart ============
+    if ($tasks -contains 'RevertBrowserAutoStart') {
+        Log '== Revert BrowserAutoStart ==' 'Cyan'
+        if (Test-Path $autoLnk) {
+            if ($dryRun) { Log "  [dry] remove $autoLnk" }
+            else { Remove-Item $autoLnk -Force -ErrorAction SilentlyContinue; Log '  startup shortcut removed' 'Green' }
+        } else { Log '  no startup shortcut found' }
     }
 
     # ============ RemoveApps ============
@@ -1194,7 +1220,7 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
                 $targetFile = Join-Path $tmpFontDir $fn
                 if (-not (Test-Path $targetFile)) {
                     $encodedFn = [Uri]::EscapeDataString($fn)
-                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.11/fonts/$encodedFn"
+                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.12/fonts/$encodedFn"
                     try { Invoke-WebRequest $url -OutFile $targetFile -UseBasicParsing -TimeoutSec 10 }
                     catch { Log "FAIL download font $fn : $($_.Exception.Message)" 'Yellow' }
                 }
@@ -1503,11 +1529,11 @@ STOP_HOUR=-1
             }
             # Fallback if downloaded directly from GitHub/URL
             if (-not (Test-Path $dstKaPs1)) {
-                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.11/net-auth/KeepAlive.ps1"
+                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.12/net-auth/KeepAlive.ps1"
                 try { Invoke-WebRequest $kaUrl -OutFile $dstKaPs1 -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path (Join-Path $netAuthDir 'KeepAlive.js'))) {
-                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.11/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
+                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.12/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path $dstLaunchVbs)) {
                 $vbsContent = @'
