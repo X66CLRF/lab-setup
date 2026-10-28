@@ -74,8 +74,8 @@ In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = default all 
 | RevertBrowserSearch | Remove search engine policies from Chrome, Edge, and Firefox |
 | BrowserHome | Browser opens YouTube on start via machine policy (Chrome, Edge, Firefox) — karaoke room |
 | RevertBrowserHome | Remove startup-page policies from Chrome and Edge (Firefox: manual if policies.json shared) |
-| BrowserAutoStart | Startup shortcut (all users) opens Edge at every Windows logon; also applies BrowserHome so YouTube opens once (no duplicate tab) — karaoke room |
-| RevertBrowserAutoStart | Remove that startup shortcut (BrowserHome policy stays; use RevertBrowserHome to drop it) |
+| BrowserAutoStart | Edge shortcut with `https://www.youtube.com/` in All-Users Startup + Public Desktop (opens at every logon; also a desktop icon). Removes Edge startup-page policy from BrowserHome to avoid a duplicate tab — karaoke room |
+| RevertBrowserAutoStart | Remove both shortcuts |
 | Tune | High performance power plan, lighter visual effects, clear temp |
 | RevertTune | Restore Balanced power plan and default Windows visual effects |
 | SpssLicense | Write SPSS/Amos concurrent license server into `spssprod.inf` |
