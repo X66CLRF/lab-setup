@@ -88,3 +88,28 @@
 1. **KeepAlive:** รอ `keepalive.log` หลังติดตั้งเวอร์ชันนี้ (ต้องเห็น `Engine: node` และ `Login SUCCESS`); ยังไม่ทราบว่า winget ลง Node สำเร็จบนเครื่องแล็บไหม
 2. **SPSS ไม่ใช้ VPN ไม่ได้:** `licenseServer=192.168.0.72` (relay → `192.168.3.10:5093`) ผ่านแค่เช็ก TCP 5093 แต่เปิดใช้งานผลิตภัณฑ์ไม่ได้ ต้องเปิด Fortinet เหมือนเดิม — สาเหตุยังไม่รู้ ต้องเทียบ `collect-logs.ps1` (ต่อ VPN / ไม่ต่อ VPN) + สคริปต์ relay บน Server 72 (NSSM `SpssLicenseRelay`) + log ของ service; สมมติฐาน: UDP/ลำดับ handshake ผ่าน relay, ค่า license address อื่นนอกจาก `LSHOST`, license ผูกชื่อ/IP ของ `192.168.3.10`
 3. **Release:** push tag `v1.10` เอง (sandbox คลาวด์ push tag ไม่ได้) แล้วคัดลอกไฟล์จาก tag ขึ้น Server 72 (README: Publish to Server 72 — รวม `KeepAlive.js`, `launch.vbs`); merge branch เข้า `main` หลัง push tag เท่านั้น (`go.txt` ชี้ tag)
+
+
+---
+
+## 2026-11-02 — Fix KeepAlive Sleep / Relative URL / Auto-Update from Server 72
+- **สถานะ:** รอดำเนินการคัดลอกขึ้น Server 72 และ merge
+- **ระดับ:** L2 · **ดำเนินการโดย:** Antigravity 2026-11-02
+- **เครื่อง:** ASUS
+- **branch:** handoff/fix-keepalive-sleep-autoupdate
+
+### การแก้ไข:
+1. **Auto-Update ในตัวสคริปต์ (`KeepAlive.ps1` และ `KeepAlive.js`):**
+   - ตรวจจับและเปรียบเทียบ hash ไฟล์บน share `\\192.168.0.72\LabDeploy\net-auth\` ทุก 30 นาที และตอนเริ่มต้น/เน็ตหลุด
+   - หาก Server 72 มีการอัปเดตไฟล์ (`KeepAlive.ps1`, `KeepAlive.js`, `launch.vbs`, `net-auth.env`) จะดาวน์โหลดลงมาทับที่เครื่องและ restart daemon เองอัตโนมัติ ไม่ต้องเดินไปอัปเดตที่เครื่องอีกต่อไป
+2. **แก้ไขปัญหา Sleep / Wake แล้วเน็ตหลุดไม่ต่อ (`KeepAlive.ps1` และ `KeepAlive.js`):**
+   - แทนที่จะหลับรวดเดียว 90 วินาที ปรับเป็น `smartSleep` / `Sleep-Smarter` ซอยเช็คทุก 3 วินาที
+   - หากตรวจพบเวลานาฬิกากระโดดเกิน 8 วินาที (System Resume จาก Sleep/Hibernate) จะเข้าโหมดตรวจสอบเน็ตทันทีและเรียก login ทันทีภายใน 3 วินาที ไม่ต้องรอนาน 90 วินาที
+3. **แก้ไข Task Scheduler MultipleInstances (`lab.ps1`):**
+   - ปรับการลง Scheduled Task `NSRU-KeepAlive` ให้ใช้ `-MultipleInstances Parallel` เพื่อให้ EventTrigger (Power-Troubleshooter Event 1) สามารถกระตุ้น instance ใหม่ได้ ไม่ถูก `IgnoreNew` เพิกเฉย และตัว duplicate-killer จะเคลียร์โปรเซสเก่าที่ค้างอยู่ทิ้ง
+4. **แก้ไขปัญหาเน็ตบางห้องต่อไม่ได้ (Relative URL & Target Portal):**
+   - FortiGate บางวงแลนตอบกลับ redirect เป็น `/fgtauth?...` ซึ่งทำให้ `new URL()` / `[Uri]` แครช `Invalid URL`
+   - ปรับให้แปลง Relative URL เข้ากับ base portal อัตโนมัติ (`normalizeUrl` และ URL constructor with base)
+   - ปรับการส่ง ping keepalive ให้ส่งไปยัง `activePortal` ที่ล็อกอินสำเร็จ (ไม่จำกัดเฉพาะ portalUrl เริ่มต้น)
+5. **เพิ่มตัวช่วยอัปเดต 1-Click (`net-auth/update.cmd` และ `net-auth/update.ps1`):**
+   - สำหรับเครื่องแล็บที่รันตัวเก่าอยู่ สามารถดับเบิ้ลคลิก `update.cmd` จาก share เพื่ออัปเดตไฟล์, ติดตั้ง Node LTS (ถ้ายังไม่มี), ปรับ Task เป็น Parallel และทดสอบล็อกอินทันที
