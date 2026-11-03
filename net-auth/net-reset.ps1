@@ -30,7 +30,7 @@ function Show($ok, $t) { if ($ok) { Write-Host "  [OK]  $t" -ForegroundColor Gre
 
 function Show-Adapters {
     Get-NetIPConfiguration | Where-Object { $_.NetAdapter.Status -eq 'Up' } | ForEach-Object {
-        $ip = ($_.IPv4Address | ForEach-Object IPAddress) -join ', '
+        $ip = ($_.IPv4Address | ForEach-Object { "$($_.IPAddress)/$($_.PrefixLength)" }) -join ', '
         $gw = ($_.IPv4DefaultGateway | ForEach-Object NextHop) -join ', '
         $dns = ($_.DNSServer | Where-Object AddressFamily -eq 2 | ForEach-Object ServerAddresses) -join ', '
         $dhcp = (Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4).Dhcp
