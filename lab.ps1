@@ -2,7 +2,7 @@
 # Run in PowerShell as Administrator (short bootstrap, verifies this file's SHA256):
 #   irm x66clrf.github.io/lab-setup/go.txt | iex
 # Direct:
-#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.14/lab.ps1 | iex
+#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
 #   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch BrowserHome RevertBrowserHome BrowserAutoStart RevertBrowserAutoStart SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
@@ -13,7 +13,7 @@
 $LabScriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent }
 
 # Pin to main
-$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.14/config.json'
+$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/config.json'
 
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'
@@ -1237,7 +1237,7 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
                 $targetFile = Join-Path $tmpFontDir $fn
                 if (-not (Test-Path $targetFile)) {
                     $encodedFn = [Uri]::EscapeDataString($fn)
-                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.14/fonts/$encodedFn"
+                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/fonts/$encodedFn"
                     try { Invoke-WebRequest $url -OutFile $targetFile -UseBasicParsing -TimeoutSec 10 }
                     catch { Log "FAIL download font $fn : $($_.Exception.Message)" 'Yellow' }
                 }
@@ -1539,18 +1539,27 @@ STOP_HOUR=-1
                        elseif ($shareOk -and (Test-Path (Join-Path $share 'net-auth\KeepAlive.js'))) { Join-Path $share 'net-auth\KeepAlive.js' }
                        else { $null }
             if ($srcKaJs) { Copy-Item $srcKaJs (Join-Path $netAuthDir 'KeepAlive.js') -Force }
-            if (-not (Get-Command node.exe -ErrorAction SilentlyContinue) -and -not (Test-Path "$env:ProgramFiles\nodejs\node.exe")) {
-                Log "Node.js not found - KeepAlive needs it (curl.exe cannot pass the portal TLS). Installing OpenJS.NodeJS.LTS via winget..." 'Yellow'
-                if ($dryRun) { Log "  [dry] winget install OpenJS.NodeJS.LTS" }
-                else { & { $ErrorActionPreference = 'Continue'; winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null } }
+            if (-not (Get-Command node.exe -ErrorAction SilentlyContinue) -and -not (Test-Path "$env:ProgramFiles\nodejs\node.exe") -and -not (Test-Path (Join-Path $netAuthDir 'node.exe'))) {
+                $srcNode = if ($shareOk -and (Test-Path (Join-Path $share 'net-auth\node.exe'))) { Join-Path $share 'net-auth\node.exe' }
+                           elseif ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'tools\node.exe'))) { Join-Path $LabScriptDir 'tools\node.exe' }
+                           elseif ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir 'net-auth\node.exe'))) { Join-Path $LabScriptDir 'net-auth\node.exe' }
+                           else { $null }
+                if ($srcNode) {
+                    Copy-Item $srcNode (Join-Path $netAuthDir 'node.exe') -Force
+                    Log "Copied portable node.exe from $srcNode -> $netAuthDir\node.exe" 'Green'
+                } else {
+                    Log "Node.js not found - KeepAlive needs it (curl.exe cannot pass the portal TLS). Installing OpenJS.NodeJS.LTS via winget..." 'Yellow'
+                    if ($dryRun) { Log "  [dry] winget install OpenJS.NodeJS.LTS" }
+                    else { & { $ErrorActionPreference = 'Continue'; winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null } }
+                }
             }
             # Fallback if downloaded directly from GitHub/URL
             if (-not (Test-Path $dstKaPs1)) {
-                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.14/net-auth/KeepAlive.ps1"
+                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/net-auth/KeepAlive.ps1"
                 try { Invoke-WebRequest $kaUrl -OutFile $dstKaPs1 -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path (Join-Path $netAuthDir 'KeepAlive.js'))) {
-                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.14/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
+                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path $dstLaunchVbs)) {
                 $vbsContent = @'
@@ -1691,8 +1700,30 @@ End If
 }
 
 $LabTelemetryHelpers
+`$queueFile = Join-Path `$root 'pending-telemetry.json'
 function Send-Report(`$title, `$detail) {
-    Send-LabEvent '$telemetryUrl' '$camp' 'crash' `$title `$detail 'SYSTEM (CrashWatcher)' | Out-Null
+    `$sent = Send-LabEvent '$telemetryUrl' '$camp' 'crash' `$title `$detail 'SYSTEM (CrashWatcher)'
+    if (-not `$sent) {
+        try {
+            `$q = @()
+            if (Test-Path `$queueFile) { `$q = @(Get-Content `$queueFile -Raw -Encoding UTF8 | ConvertFrom-Json) }
+            `$q += [pscustomobject]@{ title = `$title; detail = `$detail; time = (Get-Date).ToString('o') }
+            if (`$q.Count -gt 30) { `$q = `$q[-30..-1] }
+            `$q | ConvertTo-Json -Depth 3 | Set-Content -Path `$queueFile -Encoding UTF8 -Force
+        } catch {}
+    }
+}
+if (Test-Path `$queueFile) {
+    try {
+        `$q = @(Get-Content `$queueFile -Raw -Encoding UTF8 | ConvertFrom-Json)
+        `$rem = New-Object Collections.Generic.List[object]
+        foreach (`$item in `$q) {
+            `$s = Send-LabEvent '$telemetryUrl' '$camp' 'crash' `$item.title `$item.detail 'SYSTEM (CrashWatcher-Retry)'
+            if (-not `$s) { `$rem.Add(`$item) }
+        }
+        if (`$rem.Count -gt 0) { `$rem | ConvertTo-Json -Depth 3 | Set-Content -Path `$queueFile -Encoding UTF8 -Force }
+        else { Remove-Item `$queueFile -Force -ErrorAction SilentlyContinue }
+    } catch {}
 }
 
 # 1. Check BSOD (System Event 1001) or Unexpected Shutdown (Event 6008)
