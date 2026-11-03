@@ -35,7 +35,7 @@ function Show-Adapters {
         $dns = ($_.DNSServer | Where-Object AddressFamily -eq 2 | ForEach-Object ServerAddresses) -join ', '
         $dhcp = (Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4).Dhcp
         Write-Host ("  {0}: IP {1}  GW {2}  DNS {3}  DHCP {4}" -f $_.InterfaceAlias, $ip, $(if ($gw) { $gw } else { '-' }), $(if ($dns) { $dns } else { '-' }), $dhcp)
-        if ($ip -like '169.254*') { Write-Host '        169.254.x.x = no address from DHCP: check the LAN cable / switch port' -ForegroundColor Yellow }
+        if ($ip -like '169.254*') { Write-Host '        169.254.x.x = no address from DHCP: check the LAN cable / room switch (several PCs = the switch)' -ForegroundColor Yellow }
     }
     $down = Get-NetAdapter -Physical | Where-Object Status -ne 'Up'
     foreach ($d in $down) { Write-Host ("  {0}: {1} (unplugged or disabled)" -f $d.Name, $d.Status) -ForegroundColor DarkGray }

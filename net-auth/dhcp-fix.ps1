@@ -89,6 +89,7 @@ if ($ip) {
     Save-LanProfile $nic
 } else {
     Write-Host '  [!!] no answer from DHCP (still 169.254)' -ForegroundColor Red
+    Write-Host '  Several PCs in the room on 169.254 = check the room switch first (2026-11-03: a failed switch, fixed by replacing it).' -ForegroundColor Yellow
     Write-Host '  DHCP client log (evidence for the network team):'
     Get-WinEvent -LogName 'Microsoft-Windows-Dhcp-Client/Admin' -MaxEvents 6 | ForEach-Object {
         Write-Host ("    {0:HH:mm:ss} [{1}] {2}" -f $_.TimeCreated, $_.Id, (($_.Message -split "`r?`n")[0])) }
