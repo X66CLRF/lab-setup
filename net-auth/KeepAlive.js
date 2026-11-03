@@ -49,6 +49,14 @@ if (accounts.length === 0) {
 }
 let currentAccountIndex = 0;
 
+// Retry pacing. Every lab PC shares the same account(s): retrying every 10s from many PCs gets the
+// account/IP locked out at the portal, and with a concurrent-login limit the PCs keep kicking each other.
+let lastRejected = false;   // portal returned its login form again (wrong / locked user or password)
+let failCount = 0;          // consecutive failed logins or sessions that died soon after login
+const REJECT_WAIT_SEC = 900;
+const SHORT_SESSION_MS = 10 * 60 * 1000;
+const backoffSec = () => Math.min(30 * 2 ** Math.max(0, failCount - 1), 900); // 30, 60, 120 ... 900
+
 // Check and sync files from Server 72 share if reachable
 function syncFromShare() {
   const shareDir = '\\\\192.168.0.72\\LabDeploy\\net-auth';
@@ -163,11 +171,13 @@ async function attemptLogin(targetPortal, loginPage, magicToken, username, passw
 
   const tm = resp.match(/keepalive\?([0-9a-fA-F]+)/) || resp.match(/logout\?([0-9a-fA-F]+)/);
   const token = tm ? tm[1] : null;
+  if (!token && /type="password"/.test(resp)) lastRejected = true;
   writeLog(`Login detail: user=${username} redirect=${targetPortal} magic=${magic ? 'found' : 'MISSING'} token=${token ? 'found' : (/type="password"/.test(resp) ? 'none (login page again: wrong user/password?)' : 'none')}`);
   return token;
 }
 
 async function login(redirectUrl) {
+  lastRejected = false;
   try {
     let targetPortal = portal;
     let magicToken = '';
@@ -189,6 +199,7 @@ async function login(redirectUrl) {
       const tok = await attemptLogin(targetPortal, loginPage, magicToken, acc.username, acc.password);
       if (tok) {
         currentAccountIndex = idx;
+        lastRejected = false;
         return tok;
       }
       if (accounts.length > 1) {
@@ -224,6 +235,7 @@ async function main() {
   const accountLabels = accounts.map(a => a.username).join(', ');
   writeLog(`KeepAlive (node ${process.version}) started (Target: ${portal}, Accounts: [${accountLabels}], Interval: ${intervalSec}s)`);
   let token = null;
+  let onlineSince = null;
   let lastShareCheck = Date.now();
 
   let st = await checkInternet();
@@ -256,6 +268,8 @@ async function main() {
 
     st = await checkInternet();
     if (st.isOnline) {
+      if (!onlineSince) onlineSince = Date.now();
+      if (Date.now() - onlineSince >= SHORT_SESSION_MS) failCount = 0;
       if (token) {
         try {
           const res = await request(`${activePortal}/keepalive?${token}`);
@@ -279,10 +293,21 @@ async function main() {
         }
       }
     } else {
+      // Online for only a few minutes, then dropped: the shared account was probably taken over by another PC.
+      if (onlineSince && Date.now() - onlineSince < SHORT_SESSION_MS) {
+        failCount++;
+        if (failCount >= 2) {
+          const w = backoffSec();
+          writeLog(`Session dropped soon after login (${failCount}x) - account may be in use on another PC (concurrent login limit). Waiting ${w}s before re-login.`);
+          await smartSleep(w);
+        }
+      }
+      onlineSince = null;
       writeLog('Connection dropped. Re-authenticating...');
       token = await login(st.redirectUrl);
       st = await checkInternet();
       if (st.isOnline) {
+        onlineSince = Date.now();
         writeLog(`Re-connected successfully (${accounts[currentAccountIndex].username}).`);
         const woke = await smartSleep(intervalSec);
         if (woke) {
@@ -293,13 +318,17 @@ async function main() {
           }
         }
       } else {
-        writeLog('Re-connection attempt failed. Retrying in 10s...');
+        failCount++;
+        const w = lastRejected ? REJECT_WAIT_SEC : backoffSec();
+        writeLog(lastRejected
+          ? `Portal rejected the user/password (wrong or locked, ${failCount}x). Pausing ${w}s so the account is not locked out - fix net-auth.env on Server 72.`
+          : `Re-connection attempt failed (${failCount}x). Retrying in ${w}s...`);
         // Also check share in case credentials were fixed on Server 72 while offline
         if (syncFromShare()) {
           writeLog('Update detected from Server 72 while offline. Exiting for restart...');
           process.exit(0);
         }
-        await smartSleep(10);
+        await smartSleep(w);
       }
     }
   }

@@ -263,6 +263,7 @@ function Invoke-Login($redirTarget) {
     }
 
     $tok = if ($resp -match 'keepalive\?([0-9a-fA-F]+)') { $matches[1] } elseif ($resp -match 'logout\?([0-9a-fA-F]+)') { $matches[1] } else { $null }
+    $script:lastRejected = (-not $tok) -and ($resp -match 'type="password"')
     Write-Log ("Login detail: redirect={0} page=curl{1} magic={2} post=curl{3} token={4}" -f
         $(if ($redirTarget) { $targetPortal } else { 'none' }), $pageExit, $(if ($magic) { 'found' } else { 'MISSING' }), $postExit,
         $(if ($tok) { 'found' } elseif ($resp -match 'type="password"') { 'none (login page again: wrong user/password?)' } else { 'none' }))
@@ -310,6 +311,8 @@ if ($Once) {
 }
 
 $lastShareSync = Get-Date
+$failCount = 0
+$script:lastRejected = $false
 
 # Daemon loop
 while ($true) {
@@ -356,6 +359,7 @@ while ($true) {
         $redir = Get-RedirectUrl
         $token = Invoke-Login $redir
         if (Test-Internet) {
+            $failCount = 0
             Write-Log "Re-connected successfully."
             $woke = Sleep-Smarter $IntervalSec
             if ($woke) {
@@ -366,12 +370,16 @@ while ($true) {
                 }
             }
         } else {
-            Write-Log "Re-connection attempt failed. Retrying in 10s..."
+            # Shared account on every lab PC: fast retries get it locked out at the portal, so back off
+            $failCount++
+            $wait = if ($script:lastRejected) { 900 } else { [Math]::Min(30 * [Math]::Pow(2, $failCount - 1), 900) }
+            if ($script:lastRejected) { Write-Log "Portal rejected the user/password (wrong or locked, ${failCount}x). Pausing ${wait}s so the account is not locked out - fix net-auth.env on Server 72." }
+            else { Write-Log "Re-connection attempt failed (${failCount}x). Retrying in ${wait}s..." }
             if (Sync-FromDeployShare) {
                 Write-Log "Update detected from Server 72 while offline. Restarting..."
                 exit 0
             }
-            [void](Sleep-Smarter 10)
+            [void](Sleep-Smarter ([int]$wait))
         }
     }
 }

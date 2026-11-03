@@ -3,7 +3,7 @@
   Run as Administrator (or will auto-elevate).
   Copies newest KeepAlive files to C:\ProgramData\LabDeploy\net-auth,
   ensures Node.js is installed or copied offline from USB/Share,
-  re-registers the task with Parallel multiple instances and wake trigger,
+  re-registers the task (IgnoreNew: one daemon only) with wake trigger,
   and tests login immediately.
 #>
 
@@ -94,7 +94,7 @@ $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //Nologo
 $trigStartup = New-ScheduledTaskTrigger -AtStartup
 $trigLogon   = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances Parallel
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances IgnoreNew
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($trigStartup, $trigLogon) -Principal $principal -Settings $settings -Force | Out-Null

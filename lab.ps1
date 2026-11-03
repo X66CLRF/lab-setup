@@ -1610,7 +1610,9 @@ End If
             $trigStartup = New-ScheduledTaskTrigger -AtStartup
             $trigLogon   = New-ScheduledTaskTrigger -AtLogOn
             $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances Parallel
+            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances IgnoreNew
+            # IgnoreNew: launch.vbs keeps the task Running while the daemon lives, so the logon/wake triggers do not start
+            # a second copy that kills the first mid-login (the daemon detects wake by itself)
 
             try {
                 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
@@ -1647,7 +1649,8 @@ End If
                 Log "Task '$taskName' not found or already removed." 'Yellow'
             }
             # Process objects have no CommandLine on PS 5.1 - query WMI instead
-            Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*KeepAlive.ps1*' -or $_.CommandLine -like '*net-auth*KeepAlive.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'node.exe' OR Name = 'wscript.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*KeepAlive.ps1*' -or $_.CommandLine -like '*net-auth*KeepAlive.js*' -or $_.CommandLine -like '*net-auth*launch.vbs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Log "KeepAlive stopped. The portal session ends by itself; log in from the browser (http://neverssl.com opens the login page)." 'Green'
         }
     }
 
