@@ -40,6 +40,13 @@ if (-not $KeepKeepAlive) {
 }
 
 Write-Host '2. Installing the logon login page...' -ForegroundColor Cyan
+# login.nsru.ac.th resolves only on the campus DNS: pin it so the auth page opens on PCs set to public DNS
+$hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+if (-not (Select-String -Path $hostsFile -Pattern '^\s*[0-9.]+\s+login\.nsru\.ac\.th\b' -Quiet)) {
+    Add-Content -Path $hostsFile -Value "`r`n192.168.252.252 login.nsru.ac.th  # NSRU campus login portal (portal-login.ps1)" -Encoding ASCII
+    ipconfig /flushdns | Out-Null
+    Write-Host '   hosts: pinned login.nsru.ac.th -> 192.168.252.252' -ForegroundColor Green
+}
 $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $edge) { $edge = 'msedge' }
 # VBScript + MSXML: no console window flashes at logon. 204 = online; a portal answer or no answer = open the page.

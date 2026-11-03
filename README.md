@@ -66,6 +66,7 @@ In every sub-list: numbers or ranges like `1,3,5` or `1-4`, Enter = default all 
 | LicenseCheck | Inspect Windows, Office, and SPSS license health (licensed, days remaining, KMS, DaemonHost). Prompts to auto-fix/renew if any license is expired or missing. |
 | KeepAlive | Optional background daemon for campus LAN captive portal. Runs 100% headless (zero console window) as SYSTEM task, reads credentials from a local copy of `\\192.168.0.72\LabDeploy\net-auth.env`, re-synced from the share on every KeepAlive run (changed on Server 72 = updated here; share unreachable = local copy kept). `labdeploy` is read-only, so change the password in the share file on the server, not via option [4]. |
 | `net-auth/portal-login.ps1` | Manual login instead of KeepAlive: stops KeepAlive and adds an all-users Startup launcher that opens Edge on the portal login page at logon while the PC is offline (`-Remove` undoes, `-KeepKeepAlive` keeps the daemon). Flash drive: `5-LOGIN-PAGE.cmd`. |
+| `net-auth/net-reset.ps1` | Login page will not open ("action needed" shows but the auth page fails): stops KeepAlive, resets proxy / DNS cache / DHCP lease, moves static public DNS to the campus DNS, pins `login.nsru.ac.th` (campus-DNS-only name) in hosts, tests gateway/DNS/port 1000/internet, opens the exact portal URL in Edge, optional Winsock + TCP/IP reset. Report saved next to the script. Flash drive: `6-NET-RESET.cmd`. |
 | CrashWatcher | Background Scheduled Task (`Lab_CrashWatcher`) running as SYSTEM. Detects BSOD (BugCheck 1001), unexpected shutdowns (6008), and critical app crashes (1000). Reports to LibDesk (`telemetryUrl`) with `hardwareId` (BIOS serial > MAC > UUID) + domain; new machines land in LibDesk > ดูแลคอมพิวเตอร์ > **จัดเครื่องเข้าห้อง** ("ยังไม่จัดกลุ่ม") until an admin drags them into a campus room — only crashes of assigned machines open incidents. Needs the shared token (LibDesk `LAB_TELEMETRY_TOKEN`): option [1]/[2] syncs it from the share on every run (`\\<host>\LabDeploy\telemetry.token`, protected by the labdeploy cmdkey credential like `net-auth.env`), else `$env:LAB_TELEMETRY_TOKEN`, else prompts, then stores it in `%ProgramData%\LabDeploy\telemetry.token` (SYSTEM + Administrators only). **Never put the token in `config.json` (public) or commit it.** No token = nothing is sent. |
 | Fonts | Thai fonts from share `fonts\` or local/online fallback for all users |
 | Certs | Trusted Root import, thumbprint allowlist only |
@@ -103,7 +104,7 @@ Copy the files **from the tag** (`git show v1.1:<path>`, so hashes match `go.txt
 | From the tag | To Server 72 |
 | :--- | :--- |
 | `lab.ps1`, `config.json` | `C:\LabDeploy\lab\` and `C:\Websites\static\lab-setup\` |
-| `net-auth/KeepAlive.ps1`, `net-auth/KeepAlive.js`, `net-auth/launch.vbs`, `net-auth/portal-login.ps1` | `C:\LabDeploy\net-auth\` |
+| `net-auth/KeepAlive.ps1`, `net-auth/KeepAlive.js`, `net-auth/launch.vbs`, `net-auth/portal-login.ps1`, `net-auth/net-reset.ps1` | `C:\LabDeploy\net-auth\` |
 | `go-lan.txt` | `C:\Websites\static\lab-setup\go.txt` |
 | `lan/web.config` | `C:\Websites\static\lab-setup\web.config` |
 
