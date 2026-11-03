@@ -107,9 +107,22 @@ if ($ip) {
     }
     $lan = if (Test-Path $profiles) { Import-Csv $profiles | Where-Object { In-Subnet $last.IP $_.FromIP $_.Prefix } | Select-Object -Last 1 }
     if (-not $lan) {
+        # This PC's own last DHCP lease, kept by Windows in the registry (real values from the DHCP server)
+        $k = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$($nic.InterfaceGuid)"
+        $r = Get-ItemProperty $k
+        $rIp = [string]$r.DhcpIPAddress; $rMask = [string]$r.DhcpSubnetMask; $rGw = @($r.DhcpDefaultGateway)[0]; $rDns = [string]$r.DhcpNameServer
+        if ($rIp -and $rIp -ne '0.0.0.0' -and $rMask -and $rMask -ne '0.0.0.0' -and $rGw) {
+            $bits = (([Net.IPAddress]$rMask).GetAddressBytes() | ForEach-Object { [Convert]::ToString($_, 2) }) -join '' -replace '0', ''
+            $lan = [pscustomobject]@{ Prefix = $bits.Length; Gateway = $rGw; Dns = ($rDns -replace ',', ' ').Trim(); FromPC = "$env:COMPUTERNAME registry (last DHCP lease)"; FromIP = $rIp; When = 'last lease' }
+            if (-not $lan.Dns) { $lan.Dns = $null }
+            if (-not (In-Subnet $last.IP $lan.FromIP $lan.Prefix)) { $lan = $null }
+        }
+    }
+    if ($lan -and -not $lan.Dns) { $lan = $null }
+    if (-not $lan) {
         Write-Host ("  No recorded LAN settings that contain {0} yet - not guessing the mask." -f $last.IP) -ForegroundColor Yellow
-        Write-Host '  Do this: plug this flash drive into a PC in the SAME room whose internet works, run 7-FIX-DHCP.cmd once'
-        Write-Host '  (it only records the real LAN settings there), then come back and run 7-FIX-DHCP.cmd on this PC.'
+        Write-Host '  Do this: plug this flash drive into another PC in this room that still HAS an IP (10.x, internet not needed),'
+        Write-Host '  run 7-FIX-DHCP.cmd once (it only records the real LAN settings there), then run it again on this PC.'
         Stop-Transcript | Out-Null; return
     }
     $useIp = $last.IP; $useGw = $lan.Gateway; $usePrefix = [int]$lan.Prefix; $useDns = $lan.Dns -split ' '
