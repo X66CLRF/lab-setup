@@ -2,7 +2,7 @@
 # Run in PowerShell as Administrator (short bootstrap, verifies this file's SHA256):
 #   irm x66clrf.github.io/lab-setup/go.txt | iex
 # Direct:
-#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/lab.ps1 | iex
+#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.17/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
 #   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch BrowserHome RevertBrowserHome BrowserAutoStart RevertBrowserAutoStart SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
@@ -13,7 +13,7 @@
 $LabScriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent }
 
 # Pin to main
-$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/config.json'
+$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.17/config.json'
 
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'
@@ -35,7 +35,7 @@ function Invoke-LabSetup {
     }
     $subMenus = @{
         'Optimize' = @(
-            @{ Task = 'Cleanup';             Label = 'Cleanup (ล้าง Downloads, ไดรฟ์ D: และ Temp)' },
+            @{ Task = 'Cleanup';             Label = 'Cleanup (ล้าง Downloads, Documents, ไดรฟ์ D: และ Temp)' },
             @{ Task = 'BrowserClean';        Label = 'BrowserClean (ล้างประวัติ/เซสชัน Chrome และ Edge)' },
             @{ Task = 'RemoveApps';          Label = 'RemoveApps (ถอนบล็อกแวร์/แอนตี้ไวรัสเถื่อนตาม config)' },
             @{ Task = 'RemoveAI';            Label = 'RemoveAI (ปิดและถอน Windows Copilot, Recall, AI Search, Click to Do)' },
@@ -326,6 +326,7 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
     function Clear-Tree($dir, $exclusions) {
         # Delete contents of $dir, keep excluded paths (and their parents)
         foreach ($item in Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue) {
+            if ($item.Name -eq 'desktop.ini') { continue }
             $full = $item.FullName.TrimEnd('\')
             if ($exclusions | Where-Object { $_ -ieq $full }) { Log "  keep $full"; continue }
             $fullPrefix = $full + '\'
@@ -489,8 +490,14 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         Get-ChildItem "$env:SystemDrive\Users" -Directory | Where-Object {
             $_.Name -notin @('Public','Default','Default User','All Users') -and $cfg.excludeProfiles -notcontains $_.Name
         } | ForEach-Object {
-            $dl = Join-Path $_.FullName 'Downloads'
+            $u = $_
+            $dl = Join-Path $u.FullName 'Downloads'
             if (Test-Path $dl) { Log "Downloads: $dl"; Clear-Tree $dl $excl }
+
+            $docDirs = @(Join-Path $u.FullName 'Documents') + @(Get-ChildItem $u.FullName -Directory -Filter 'OneDrive*' -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'Documents' })
+            foreach ($doc in $docDirs) {
+                if (Test-Path $doc) { Log "Documents: $doc"; Clear-Tree $doc $excl }
+            }
         }
         $sysSkip = '$RECYCLE.BIN','System Volume Information','pagefile.sys','swapfile.sys','hiberfil.sys'
         foreach ($d in $cfg.cleanup.drives) {
@@ -1247,7 +1254,7 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
                 $targetFile = Join-Path $tmpFontDir $fn
                 if (-not (Test-Path $targetFile)) {
                     $encodedFn = [Uri]::EscapeDataString($fn)
-                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/fonts/$encodedFn"
+                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.17/fonts/$encodedFn"
                     try { Invoke-WebRequest $url -OutFile $targetFile -UseBasicParsing -TimeoutSec 10 }
                     catch { Log "FAIL download font $fn : $($_.Exception.Message)" 'Yellow' }
                 }
@@ -1565,11 +1572,11 @@ STOP_HOUR=-1
             }
             # Fallback if downloaded directly from GitHub/URL
             if (-not (Test-Path $dstKaPs1)) {
-                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/net-auth/KeepAlive.ps1"
+                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.17/net-auth/KeepAlive.ps1"
                 try { Invoke-WebRequest $kaUrl -OutFile $dstKaPs1 -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path (Join-Path $netAuthDir 'KeepAlive.js'))) {
-                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
+                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.17/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path $dstLaunchVbs)) {
                 $vbsContent = @'
