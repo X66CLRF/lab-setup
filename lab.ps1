@@ -2,7 +2,7 @@
 # Run in PowerShell as Administrator (short bootstrap, verifies this file's SHA256):
 #   irm x66clrf.github.io/lab-setup/go.txt | iex
 # Direct:
-#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/lab.ps1 | iex
+#   irm https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/lab.ps1 | iex
 # Dry run (list actions, change nothing):   $env:LAB_DRYRUN='1'; irm ... | iex
 # Skip menu (comma list):                   $env:LAB_TASKS='Install,Fonts'; irm ... | iex
 #   Tasks: Cleanup BrowserClean RemoveApps Tune RevertTune Install Winget Activate LicenseCheck Fonts Certs WinRARTheme Wallpaper BrowserSearch RevertBrowserSearch BrowserHome RevertBrowserHome BrowserAutoStart RevertBrowserAutoStart SpssLicense Check Unlock AutoSleep KeepAlive CrashWatcher
@@ -13,7 +13,7 @@
 $LabScriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent }
 
 # Pin to main
-$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/config.json'
+$LabConfigUrl = 'https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/config.json'
 
 function Invoke-LabSetup {
     $ErrorActionPreference = 'Stop'
@@ -1115,6 +1115,16 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
         $wg = Get-Command winget.exe -ErrorAction SilentlyContinue
         if (-not $wg) { Log 'FAIL: winget not found (install "App Installer" from Microsoft Store)' 'Red'; $global:LabExitCode = 4 }
         else {
+            # Pin critical / licensed packages to prevent accidental overwrite by upgrade --all
+            $pinList = @('Microsoft.Office', 'IBM.SPSSStatistics')
+            if ($cfg.wingetPin) { $pinList += @($cfg.wingetPin) }
+            $pinList = @($pinList | Select-Object -Unique)
+            foreach ($pinId in $pinList) {
+                if (-not $dryRun) {
+                    winget pin add --id $pinId --blocking --accept-source-agreements 2>$null | Out-Null
+                }
+            }
+
             foreach ($id in $wingetSel) {
                 $listed = winget list --id $id -e --accept-source-agreements 2>$null | Select-String ([regex]::Escape($id))
                 $verb = if ($listed) { 'upgrade' } else { 'install' }
@@ -1237,7 +1247,7 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
                 $targetFile = Join-Path $tmpFontDir $fn
                 if (-not (Test-Path $targetFile)) {
                     $encodedFn = [Uri]::EscapeDataString($fn)
-                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/fonts/$encodedFn"
+                    $url = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/fonts/$encodedFn"
                     try { Invoke-WebRequest $url -OutFile $targetFile -UseBasicParsing -TimeoutSec 10 }
                     catch { Log "FAIL download font $fn : $($_.Exception.Message)" 'Yellow' }
                 }
@@ -1555,11 +1565,11 @@ STOP_HOUR=-1
             }
             # Fallback if downloaded directly from GitHub/URL
             if (-not (Test-Path $dstKaPs1)) {
-                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/net-auth/KeepAlive.ps1"
+                $kaUrl = "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/net-auth/KeepAlive.ps1"
                 try { Invoke-WebRequest $kaUrl -OutFile $dstKaPs1 -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path (Join-Path $netAuthDir 'KeepAlive.js'))) {
-                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.15/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
+                try { Invoke-WebRequest "https://raw.githubusercontent.com/X66CLRF/lab-setup/v1.16/net-auth/KeepAlive.js" -OutFile (Join-Path $netAuthDir 'KeepAlive.js') -UseBasicParsing -TimeoutSec 10 } catch {}
             }
             if (-not (Test-Path $dstLaunchVbs)) {
                 $vbsContent = @'

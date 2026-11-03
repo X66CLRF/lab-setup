@@ -2,8 +2,9 @@
   update.ps1 - 1-Click Update for NSRU-KeepAlive
   Run as Administrator (or will auto-elevate).
   Copies newest KeepAlive files to C:\ProgramData\LabDeploy\net-auth,
-  ensures Node.js is installed if possible, re-registers the task with
-  Parallel multiple instances and wake trigger, and tests login immediately.
+  ensures Node.js is installed or copied offline from USB/Share,
+  re-registers the task with Parallel multiple instances and wake trigger,
+  and tests login immediately.
 #>
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -52,11 +53,34 @@ if (Test-Path $shareEnv) {
     Write-Host "   + net-auth.env synced (Admins & SYSTEM only)" -ForegroundColor Green
 }
 
-# 3. Check / install Node.js
+# 3. Check / copy Node.js (offline from USB / Share / or winget)
 $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
 if (-not $node -and (Test-Path "$env:ProgramFiles\nodejs\node.exe")) { $node = "$env:ProgramFiles\nodejs\node.exe" }
+if (-not $node -and (Test-Path (Join-Path $dataDir 'node.exe'))) { $node = (Join-Path $dataDir 'node.exe') }
+if (-not $node -and (Test-Path (Join-Path $netAuthDir 'node.exe'))) { $node = (Join-Path $netAuthDir 'node.exe') }
+
 if (-not $node) {
-    Write-Host "3. Installing Node.js LTS via winget..." -ForegroundColor Yellow
+    # Check offline sources first (USB / Share)
+    $offlineNodeCandidates = @(
+        (Join-Path $srcDir 'node.exe'),
+        (Join-Path $srcDir '..\tools\node.exe'),
+        (Join-Path $srcDir 'tools\node.exe'),
+        '\\192.168.0.72\LabDeploy\net-auth\node.exe'
+    )
+    foreach ($cand in $offlineNodeCandidates) {
+        if (Test-Path $cand) {
+            try {
+                $targetNode = Join-Path $netAuthDir 'node.exe'
+                Copy-Item $cand $targetNode -Force
+                $node = $targetNode
+                Write-Host "   + Copied portable node.exe from $cand" -ForegroundColor Green
+                break
+            } catch {}
+        }
+    }
+}
+if (-not $node) {
+    Write-Host "   Installing Node.js LTS via winget..." -ForegroundColor Yellow
     winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
     $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
     if (-not $node -and (Test-Path "$env:ProgramFiles\nodejs\node.exe")) { $node = "$env:ProgramFiles\nodejs\node.exe" }

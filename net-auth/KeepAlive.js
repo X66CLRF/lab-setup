@@ -3,6 +3,7 @@
  * Windows Schannel (PowerShell .NET / curl.exe) gets "connection closed unexpectedly" from the
  * portal's TLS; Node's OpenSSL does not. KeepAlive.ps1 uses this when node.exe is installed.
  * Credentials arrive via NSRU_USER / NSRU_PASS env vars (set by KeepAlive.ps1), never argv.
+ * Supports multi-account rotation (NSRU_USER_2 / NSRU_PASS_2, etc.) and auto-sync from Server 72.
  */
 const fs = require('fs');
 const https = require('https');
@@ -31,12 +32,22 @@ function writeLog(msg) {
   if (process.stdout.isTTY) console.log(line);
 }
 
-const username = process.env.NSRU_USER;
-const password = process.env.NSRU_PASS;
-if (!username || !password) {
+// Load account pool from environment (primary + fallback accounts)
+const accounts = [];
+if (process.env.NSRU_USER && process.env.NSRU_PASS) {
+  accounts.push({ username: process.env.NSRU_USER, password: process.env.NSRU_PASS });
+}
+for (let i = 2; i <= 9; i++) {
+  const u = process.env[`NSRU_USER_${i}`] || process.env[`NSRU_USER${i}`];
+  const p = process.env[`NSRU_PASS_${i}`] || process.env[`NSRU_PASS${i}`];
+  if (u && p) accounts.push({ username: u, password: p });
+}
+
+if (accounts.length === 0) {
   writeLog('FAIL: No credentials passed (NSRU_USER / NSRU_PASS missing).');
   process.exit(1);
 }
+let currentAccountIndex = 0;
 
 // Check and sync files from Server 72 share if reachable
 function syncFromShare() {
@@ -46,7 +57,7 @@ function syncFromShare() {
   try {
     if (!fs.existsSync(shareDir)) return false;
     let updated = false;
-    const files = ['KeepAlive.ps1', 'KeepAlive.js', 'launch.vbs', 'net-auth.env'];
+    const files = ['KeepAlive.ps1', 'KeepAlive.js', 'launch.vbs', 'net-auth.env', 'update.cmd', 'update.ps1'];
     for (const f of files) {
       const src = `${shareDir}\\${f}`;
       const dst = (f === 'net-auth.env') ? `${dataDir}\\${f}` : `${myNetAuth}\\${f}`;
@@ -136,6 +147,26 @@ async function checkInternet() {
   }
 }
 
+async function attemptLogin(targetPortal, loginPage, magicToken, username, password) {
+  const page = (await request(loginPage)).body;
+  const mm = page.match(/name="?magic"?\s+value="([^"]+)"/);
+  const magic = mm ? mm[1] : magicToken;
+  const rm = page.match(/name="?4Tredir"?\s+value="([^"]+)"/);
+  const redir = rm ? rm[1] : `${targetPortal}/`;
+
+  const postData = new URLSearchParams({ '4Tredir': redir, magic, username, password }).toString();
+  const resp = (await request(`${targetPortal}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(postData) },
+    body: postData
+  })).body;
+
+  const tm = resp.match(/keepalive\?([0-9a-fA-F]+)/) || resp.match(/logout\?([0-9a-fA-F]+)/);
+  const token = tm ? tm[1] : null;
+  writeLog(`Login detail: user=${username} redirect=${targetPortal} magic=${magic ? 'found' : 'MISSING'} token=${token ? 'found' : (/type="password"/.test(resp) ? 'none (login page again: wrong user/password?)' : 'none')}`);
+  return token;
+}
+
 async function login(redirectUrl) {
   try {
     let targetPortal = portal;
@@ -150,24 +181,21 @@ async function login(redirectUrl) {
         else if (u.search) magicToken = u.search.substring(1);
       } catch (e) {}
     }
-    const page = (await request(loginPage)).body;
-    const mm = page.match(/name="?magic"?\s+value="([^"]+)"/);
-    const magic = mm ? mm[1] : magicToken;
-    const rm = page.match(/name="?4Tredir"?\s+value="([^"]+)"/);
-    const redir = rm ? rm[1] : `${targetPortal}/`;
-
-    const postData = new URLSearchParams({ '4Tredir': redir, magic, username, password }).toString();
-    const resp = (await request(`${targetPortal}/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(postData) },
-      body: postData
-    })).body;
-
-    const tm = resp.match(/keepalive\?([0-9a-fA-F]+)/) || resp.match(/logout\?([0-9a-fA-F]+)/);
-    const token = tm ? tm[1] : null;
     activePortal = targetPortal;
-    writeLog(`Login detail: redirect=${redirectUrl ? targetPortal : 'none'} magic=${magic ? 'found' : 'MISSING'} token=${token ? 'found' : (/type="password"/.test(resp) ? 'none (login page again: wrong user/password?)' : 'none')}`);
-    return token;
+
+    for (let i = 0; i < accounts.length; i++) {
+      const idx = (currentAccountIndex + i) % accounts.length;
+      const acc = accounts[idx];
+      const tok = await attemptLogin(targetPortal, loginPage, magicToken, acc.username, acc.password);
+      if (tok) {
+        currentAccountIndex = idx;
+        return tok;
+      }
+      if (accounts.length > 1) {
+        writeLog(`Account '${acc.username}' failed, rotating to next account...`);
+      }
+    }
+    return null;
   } catch (err) {
     writeLog(`Login request failed: ${err.message}`);
     return null;
@@ -193,7 +221,8 @@ async function smartSleep(seconds) {
 }
 
 async function main() {
-  writeLog(`KeepAlive (node ${process.version}) started (Target: ${portal}, Interval: ${intervalSec}s)`);
+  const accountLabels = accounts.map(a => a.username).join(', ');
+  writeLog(`KeepAlive (node ${process.version}) started (Target: ${portal}, Accounts: [${accountLabels}], Interval: ${intervalSec}s)`);
   let token = null;
   let lastShareCheck = Date.now();
 
@@ -201,11 +230,11 @@ async function main() {
   if (st.isOnline) {
     writeLog('Internet is online.');
   } else {
-    writeLog(`Internet is offline or captive portal detected. Attempting login for '${username}'...`);
+    writeLog(`Internet is offline or captive portal detected. Attempting login for '${accounts[currentAccountIndex].username}'...`);
     token = await login(st.redirectUrl);
     await sleep(2000);
     st = await checkInternet();
-    writeLog(st.isOnline ? 'Login SUCCESS' : 'Login attempted, internet still offline.');
+    writeLog(st.isOnline ? `Login SUCCESS (${accounts[currentAccountIndex].username})` : 'Login attempted, internet still offline.');
   }
   if (once) process.exit(st.isOnline ? 0 : 1);
 
@@ -246,7 +275,7 @@ async function main() {
           writeLog('Internet dropped after wake. Re-authenticating immediately...');
           token = await login(st.redirectUrl);
           st = await checkInternet();
-          writeLog(st.isOnline ? 'Re-connected successfully after wake.' : 'Re-connection failed after wake. Retrying in 10s...');
+          writeLog(st.isOnline ? `Re-connected successfully after wake (${accounts[currentAccountIndex].username}).` : 'Re-connection failed after wake. Retrying in 10s...');
         }
       }
     } else {
@@ -254,7 +283,7 @@ async function main() {
       token = await login(st.redirectUrl);
       st = await checkInternet();
       if (st.isOnline) {
-        writeLog('Re-connected successfully.');
+        writeLog(`Re-connected successfully (${accounts[currentAccountIndex].username}).`);
         const woke = await smartSleep(intervalSec);
         if (woke) {
           st = await checkInternet();

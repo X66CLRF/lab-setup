@@ -2,7 +2,8 @@
   KeepAlive.ps1 - NSRU Campus LAN Internet KeepAlive Daemon
   Maintains FortiGate captive portal login in background.
   Preferred engine: Node.js (OpenSSL TLS). Fallback engine: built-in curl.exe.
-  Includes auto-sync from Server 72 share and instant sleep/wake recovery.
+  Includes portable node.exe auto-discovery, auto-sync from Server 72 share,
+  instant sleep/wake recovery, and multi-account rotation support.
 #>
 
 param(
@@ -49,7 +50,7 @@ function Sync-FromDeployShare {
     if (Test-Path $shareAuth) {
         try {
             $updated = $false
-            foreach ($fn in @('KeepAlive.ps1', 'KeepAlive.js', 'launch.vbs', 'net-auth.env')) {
+            foreach ($fn in @('KeepAlive.ps1', 'KeepAlive.js', 'launch.vbs', 'net-auth.env', 'update.cmd', 'update.ps1')) {
                 $src = Join-Path $shareAuth $fn
                 $dst = if ($fn -eq 'net-auth.env') { Join-Path $dataDir $fn } else { Join-Path $netAuthDir $fn }
                 if (Test-Path $src) {
@@ -144,19 +145,50 @@ if (-not $user -or -not $pass) {
 # Preferred engine: Node.js (OpenSSL TLS connects fine; Schannel/curl fails on FortiGate TLS)
 $nodeExe = (Get-Command 'node.exe' -ErrorAction SilentlyContinue).Source
 if (-not $nodeExe -and (Test-Path "$env:ProgramFiles\nodejs\node.exe")) { $nodeExe = "$env:ProgramFiles\nodejs\node.exe" }
+if (-not $nodeExe -and (Test-Path (Join-Path $dataDir 'node.exe'))) { $nodeExe = (Join-Path $dataDir 'node.exe') }
+if (-not $nodeExe -and (Test-Path (Join-Path $netAuthDir 'node.exe'))) { $nodeExe = (Join-Path $netAuthDir 'node.exe') }
+
+# Offline fallback: copy portable node.exe from share or local script folder if present
+if (-not $nodeExe) {
+    $nodeCandidates = @(
+        '\\192.168.0.72\LabDeploy\net-auth\node.exe',
+        (Join-Path $PSScriptRoot 'node.exe'),
+        (Join-Path $PSScriptRoot 'tools\node.exe'),
+        (Join-Path $PSScriptRoot '..\tools\node.exe'),
+        (Join-Path $PSScriptRoot '..\node.exe')
+    )
+    foreach ($cand in $nodeCandidates) {
+        if (Test-Path $cand) {
+            try {
+                $targetNode = Join-Path $netAuthDir 'node.exe'
+                Copy-Item -LiteralPath $cand -Destination $targetNode -Force -ErrorAction Stop
+                $nodeExe = $targetNode
+                Write-Log "Copied portable node.exe from $cand -> $targetNode"
+                break
+            } catch {}
+        }
+    }
+}
+
 $jsScript = Join-Path $PSScriptRoot 'KeepAlive.js'
 if (-not (Test-Path $jsScript)) { $jsScript = Join-Path $netAuthDir 'KeepAlive.js' }
 
 if ($nodeExe -and (Test-Path $jsScript)) {
     Write-Log "Engine: node ($nodeExe)"
     while ($true) {
+        # Export all primary & fallback accounts
         $env:NSRU_USER = $user
         $env:NSRU_PASS = $pass
+        foreach ($k in $cfg.Keys) {
+            if ($k -like 'NSRU_USER*' -or $k -like 'NSRU_PASS*') {
+                Set-Item -Path "Env:\$k" -Value $cfg[$k]
+            }
+        }
         $nodeArgs = @($jsScript, '--portal', $portalUrl, '--interval', $IntervalSec, '--stop-hour', $StopHour, '--log', $logFile)
         if ($Once) { $nodeArgs += '--once' }
         & $nodeExe @nodeArgs
         $code = $LASTEXITCODE
-        Remove-Item Env:\NSRU_USER, Env:\NSRU_PASS -ErrorAction SilentlyContinue
+        Get-ChildItem Env:\NSRU_USER*, Env:\NSRU_PASS* -ErrorAction SilentlyContinue | Remove-Item -ErrorAction SilentlyContinue
         if ($Once -or $code -eq 1 -or ((Get-Date).Hour -eq $StopHour)) { exit $code }
         # Node exited (likely updated from share or restart requested). Sync and restart in 3s.
         [void](Sync-FromDeployShare)
