@@ -1,7 +1,8 @@
 <#
   net-reset.ps1 - fix "no internet / login page never shows" on a lab PC, then open the campus login page.
   Run as Administrator (auto-elevates, window stays open). Steps:
-    1. stop KeepAlive  2. show adapters  3. reset proxy, DNS cache, DHCP lease (static IPs are left alone)
+    1. stop KeepAlive  2. show adapters + record the portal answer  3. reset proxy, DNS cache, hosts pin
+       (never releases the IP; renews only an adapter stuck on 169.254)
     4. test gateway / DNS / portal port / internet  5. open the portal login page in Edge (exact portal URL, so Edge
        cannot upgrade it to https and skip the firewall)  6. optional deep reset (Winsock + TCP/IP, needs restart)
   A report is saved next to this script (flash drive) or on the Desktop.
@@ -50,17 +51,22 @@ Write-Host '  stopped (1-FIX-KEEPALIVE.cmd turns it back on)'
 Step '2. Network adapters (before)'
 Show-Adapters
 
-Step '3. Reset proxy, DNS, DHCP lease'
+# Record what the portal answers BEFORE any change (redirect target = the auth page Windows/Edge try to open)
+Step '2b. Portal answer (before changes)'
+$probe = & "$env:SystemRoot\System32\curl.exe" -s -m 6 -i 'http://clients3.google.com/generate_204' 2>&1 | Select-Object -First 12
+if ($probe) { $probe | ForEach-Object { Write-Host "  | $_" } } else { Write-Host '  no answer from http://clients3.google.com (curl timeout)' -ForegroundColor Yellow }
+if (($probe | Out-String) -match '(?i)https?://([^/:"''\s]+)(?::(\d+))?') {
+    $rh = $matches[1]; $rp = if ($matches[2]) { [int]$matches[2] } else { 443 }
+    $t = Test-NetConnection $rh -Port $rp -WarningAction SilentlyContinue
+    Show $t.TcpTestSucceeded ("auth page host {0} ({1}) port {2} reachable" -f $rh, $t.RemoteAddress, $rp)
+}
+
+Step '3. Reset proxy, DNS (no IP release)'
 netsh winhttp reset proxy | Out-Null
 Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -Name ProxyEnable -Value 0
 Write-Host '  proxy: reset (WinHTTP + this user)'
 $hostsLines = Get-Content "$env:SystemRoot\System32\drivers\etc\hosts" | Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') }
 if ($hostsLines) { Write-Host "  hosts file has entries (check they are wanted):" -ForegroundColor Yellow; $hostsLines | ForEach-Object { Write-Host "    $_" } }
-$dhcpIfs = Get-NetIPInterface -AddressFamily IPv4 -Dhcp Enabled | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notlike 'Loopback*' }
-foreach ($i in $dhcpIfs) {
-    Set-DnsClientServerAddress -InterfaceIndex $i.InterfaceIndex -ResetServerAddresses
-    Write-Host "  $($i.InterfaceAlias): DNS back to automatic (DHCP)"
-}
 # login.nsru.ac.th exists only on the campus DNS: a PC set to public DNS (8.8.8.8, 1.1.1.1 ...) still sees
 # "action needed" from Windows but cannot open the auth page. Static adapters with public DNS -> campus DNS.
 $publicDns = '8.8.8.8', '8.8.4.4', '1.1.1.1', '1.0.0.1', '9.9.9.9', '208.67.222.222', '208.67.220.220'
@@ -80,13 +86,13 @@ if (-not (Select-String -Path $hostsFile -Pattern '^\s*[0-9.]+\s+login\.nsru\.ac
 } else { Write-Host '  hosts: login.nsru.ac.th already pinned' }
 ipconfig /flushdns | Out-Null
 Write-Host '  DNS cache: flushed'
-if ($dhcpIfs) {
-    Write-Host '  DHCP: release + renew (a few seconds)...'
-    ipconfig /release | Out-Null
-    Start-Sleep -Seconds 2
-    ipconfig /renew | Out-Null
-    ipconfig /registerdns | Out-Null
-} else { Write-Host '  no DHCP adapter connected - static IP left as it is' -ForegroundColor Yellow }
+# Never "ipconfig /release": on the lab LAN a released lease may not come back (seen 2026-11-03: 10.115.12.20 -> 169.254).
+# Renew only an adapter that has no usable address.
+$noAddr = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like '169.254*' -and $_.InterfaceAlias -notlike 'Loopback*' }
+foreach ($n in $noAddr) {
+    Write-Host "  $($n.InterfaceAlias): no address - asking DHCP (renew)..."
+    ipconfig /renew "$($n.InterfaceAlias)" | Out-Null
+}
 Start-Sleep -Seconds 3
 
 Step '4. Network adapters (after)'
