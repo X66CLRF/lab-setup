@@ -9,6 +9,7 @@ const https = require('https');
 const http = require('http');
 
 let portal = 'https://login.nsru.ac.th:1000';
+let activePortal = portal;
 let intervalSec = 90;
 let stopHour = -1;
 let once = false;
@@ -22,6 +23,7 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--log' && args[i + 1]) logPath = args[++i];
   else if (args[i] === '--once') once = true;
 }
+activePortal = portal;
 
 function writeLog(msg) {
   const line = `${new Date().toLocaleString('sv-SE')}  ${msg}`;
@@ -34,6 +36,44 @@ const password = process.env.NSRU_PASS;
 if (!username || !password) {
   writeLog('FAIL: No credentials passed (NSRU_USER / NSRU_PASS missing).');
   process.exit(1);
+}
+
+// Check and sync files from Server 72 share if reachable
+function syncFromShare() {
+  const shareDir = '\\\\192.168.0.72\\LabDeploy\\net-auth';
+  const dataDir = process.env.ProgramData ? `${process.env.ProgramData}\\LabDeploy` : 'C:\\ProgramData\\LabDeploy';
+  const myNetAuth = `${dataDir}\\net-auth`;
+  try {
+    if (!fs.existsSync(shareDir)) return false;
+    let updated = false;
+    const files = ['KeepAlive.ps1', 'KeepAlive.js', 'launch.vbs', 'net-auth.env'];
+    for (const f of files) {
+      const src = `${shareDir}\\${f}`;
+      const dst = (f === 'net-auth.env') ? `${dataDir}\\${f}` : `${myNetAuth}\\${f}`;
+      if (fs.existsSync(src)) {
+        let needCopy = false;
+        if (!fs.existsSync(dst)) {
+          needCopy = true;
+        } else {
+          const sStat = fs.statSync(src);
+          const dStat = fs.statSync(dst);
+          if (sStat.size !== dStat.size || Math.abs(sStat.mtimeMs - dStat.mtimeMs) > 2000) {
+            const sBuf = fs.readFileSync(src);
+            const dBuf = fs.readFileSync(dst);
+            if (!sBuf.equals(dBuf)) needCopy = true;
+          }
+        }
+        if (needCopy) {
+          fs.copyFileSync(src, dst);
+          writeLog(`Auto-updated ${f} from Server 72.`);
+          updated = true;
+        }
+      }
+    }
+    return updated;
+  } catch (e) {
+    return false;
+  }
 }
 
 // like curl -k: the portal certificate is not trusted by the lab PCs
@@ -63,15 +103,32 @@ function request(url, options = {}) {
   });
 }
 
+function normalizeUrl(target, base) {
+  if (!target) return '';
+  try {
+    return new URL(target, base).href;
+  } catch (e) {
+    return target;
+  }
+}
+
 async function checkInternet() {
   try {
     const res = await request('http://clients3.google.com/generate_204');
     if (res.statusCode === 204) return { isOnline: true };
     let redirectUrl = '';
-    if (res.headers.location) redirectUrl = res.headers.location;
-    else {
-      const m = res.body && res.body.match(/window\.location\s*=\s*"([^"]+)"/);
-      if (m) redirectUrl = m[1];
+    if (res.headers.location) {
+      redirectUrl = normalizeUrl(res.headers.location, portal);
+    } else {
+      const m = res.body && res.body.match(/window\.location\s*=\s*["']([^"']+)["']/);
+      if (m) {
+        redirectUrl = normalizeUrl(m[1], portal);
+      } else {
+        const meta = res.body && res.body.match(/<meta\s+http-equiv=["']refresh["']\s+content=["'][^"']*url=([^"']+)["']/i);
+        if (meta) {
+          redirectUrl = normalizeUrl(meta[1], portal);
+        }
+      }
     }
     return { isOnline: false, redirectUrl };
   } catch (err) {
@@ -86,8 +143,8 @@ async function login(redirectUrl) {
     let loginPage = `${portal}/`;
     if (redirectUrl) {
       try {
-        loginPage = redirectUrl;
-        const u = new URL(redirectUrl);
+        const u = new URL(redirectUrl, portal);
+        loginPage = u.href;
         targetPortal = `${u.protocol}//${u.host}`;
         if (u.searchParams.has('magic')) magicToken = u.searchParams.get('magic');
         else if (u.search) magicToken = u.search.substring(1);
@@ -108,6 +165,7 @@ async function login(redirectUrl) {
 
     const tm = resp.match(/keepalive\?([0-9a-fA-F]+)/) || resp.match(/logout\?([0-9a-fA-F]+)/);
     const token = tm ? tm[1] : null;
+    activePortal = targetPortal;
     writeLog(`Login detail: redirect=${redirectUrl ? targetPortal : 'none'} magic=${magic ? 'found' : 'MISSING'} token=${token ? 'found' : (/type="password"/.test(resp) ? 'none (login page again: wrong user/password?)' : 'none')}`);
     return token;
   } catch (err) {
@@ -118,9 +176,26 @@ async function login(redirectUrl) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+async function smartSleep(seconds) {
+  const target = Date.now() + seconds * 1000;
+  let lastTick = Date.now();
+  while (Date.now() < target) {
+    await sleep(3000);
+    const now = Date.now();
+    // Clock jumped forward > 8s: system was suspended (Sleep/Hibernate)
+    if (now - lastTick > 8000) {
+      writeLog(`System resume from sleep detected (clock jumped ${Math.round((now - lastTick) / 1000)}s).`);
+      return true;
+    }
+    lastTick = now;
+  }
+  return false;
+}
+
 async function main() {
   writeLog(`KeepAlive (node ${process.version}) started (Target: ${portal}, Interval: ${intervalSec}s)`);
   let token = null;
+  let lastShareCheck = Date.now();
 
   let st = await checkInternet();
   if (st.isOnline) {
@@ -137,14 +212,24 @@ async function main() {
   while (true) {
     if (stopHour >= 0 && new Date().getHours() === stopHour) {
       writeLog(`Stop hour reached (${stopHour}:00). Exiting daemon.`);
-      if (token) { try { await request(`${portal}/logout?${token}`); } catch (e) {} }
+      if (token) { try { await request(`${activePortal}/logout?${token}`); } catch (e) {} }
       process.exit(0);
     }
+
+    // Check Server 72 for config/script updates every 30 minutes
+    if (Date.now() - lastShareCheck > 30 * 60 * 1000) {
+      lastShareCheck = Date.now();
+      if (syncFromShare()) {
+        writeLog('Update detected from Server 72. Exiting for restart...');
+        process.exit(0);
+      }
+    }
+
     st = await checkInternet();
     if (st.isOnline) {
       if (token) {
         try {
-          const res = await request(`${portal}/keepalive?${token}`);
+          const res = await request(`${activePortal}/keepalive?${token}`);
           if (res.body.includes('name="magic"') && res.body.includes('type="password"')) {
             writeLog('Session expired. Re-authenticating...');
             token = await login();
@@ -154,17 +239,38 @@ async function main() {
           writeLog(`keepalive call failed (${err.message}), internet is OK`);
         }
       }
-      await sleep(intervalSec * 1000);
+      const woke = await smartSleep(intervalSec);
+      if (woke) {
+        st = await checkInternet();
+        if (!st.isOnline) {
+          writeLog('Internet dropped after wake. Re-authenticating immediately...');
+          token = await login(st.redirectUrl);
+          st = await checkInternet();
+          writeLog(st.isOnline ? 'Re-connected successfully after wake.' : 'Re-connection failed after wake. Retrying in 10s...');
+        }
+      }
     } else {
       writeLog('Connection dropped. Re-authenticating...');
       token = await login(st.redirectUrl);
       st = await checkInternet();
       if (st.isOnline) {
         writeLog('Re-connected successfully.');
-        await sleep(intervalSec * 1000);
+        const woke = await smartSleep(intervalSec);
+        if (woke) {
+          st = await checkInternet();
+          if (!st.isOnline) {
+            writeLog('Internet dropped after wake. Re-authenticating immediately...');
+            token = await login(st.redirectUrl);
+          }
+        }
       } else {
         writeLog('Re-connection attempt failed. Retrying in 10s...');
-        await sleep(10000);
+        // Also check share in case credentials were fixed on Server 72 while offline
+        if (syncFromShare()) {
+          writeLog('Update detected from Server 72 while offline. Exiting for restart...');
+          process.exit(0);
+        }
+        await smartSleep(10);
       }
     }
   }

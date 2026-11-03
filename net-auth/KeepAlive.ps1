@@ -1,7 +1,8 @@
-﻿<#
+<#
   KeepAlive.ps1 - NSRU Campus LAN Internet KeepAlive Daemon
   Maintains FortiGate captive portal login in background.
-  Uses built-in curl.exe (Windows 10/11) to eliminate Node.js requirement.
+  Preferred engine: Node.js (OpenSSL TLS). Fallback engine: built-in curl.exe.
+  Includes auto-sync from Server 72 share and instant sleep/wake recovery.
 #>
 
 param(
@@ -13,7 +14,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Kill any duplicate KeepAlive daemons (powershell wrapper AND its node child) to avoid conflicts (not for -Once: the menu test must leave the running daemon alone)
+# Kill any duplicate KeepAlive daemons (powershell wrapper AND its node child) to avoid conflicts (not for -Once)
 if (-not $Once) { try {
     $myPid = $PID
     Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'node.exe'" -ErrorAction SilentlyContinue | Where-Object {
@@ -23,6 +24,8 @@ if (-not $Once) { try {
 
 $dataDir = Join-Path $env:ProgramData 'LabDeploy'
 if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force -Path $dataDir | Out-Null }
+$netAuthDir = Join-Path $dataDir 'net-auth'
+if (-not (Test-Path $netAuthDir)) { New-Item -ItemType Directory -Force -Path $netAuthDir | Out-Null }
 $logFile = Join-Path $dataDir 'keepalive.log'
 
 function Write-Log($msg) {
@@ -40,11 +43,56 @@ function Write-Log($msg) {
     }
 }
 
-# 1. Resolve credentials from net-auth.env
+# Auto-sync files from Server 72 share if reachable
+function Sync-FromDeployShare {
+    $shareAuth = '\\192.168.0.72\LabDeploy\net-auth'
+    if (Test-Path $shareAuth) {
+        try {
+            $updated = $false
+            foreach ($fn in @('KeepAlive.ps1', 'KeepAlive.js', 'launch.vbs', 'net-auth.env')) {
+                $src = Join-Path $shareAuth $fn
+                $dst = if ($fn -eq 'net-auth.env') { Join-Path $dataDir $fn } else { Join-Path $netAuthDir $fn }
+                if (Test-Path $src) {
+                    $need = (-not (Test-Path $dst)) -or ((Get-FileHash -LiteralPath $src).Hash -ne (Get-FileHash -LiteralPath $dst).Hash)
+                    if ($need) {
+                        Copy-Item -LiteralPath $src -Destination $dst -Force
+                        $updated = $true
+                        Write-Log "Auto-updated $fn from Server 72."
+                    }
+                }
+            }
+            return $updated
+        } catch {}
+    }
+    return $false
+}
+
+# Wait up to 15s for IPv4 address at boot before making web requests
+function Wait-NetworkReady([int]$TimeoutSec = 15) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
+        $ips = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Ethernet*','Wi-Fi*','LAN*' -ErrorAction SilentlyContinue | Where-Object {
+            $_.IPAddress -notlike '169.254*' -and $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '0.*'
+        }
+        if ($ips) { return $true }
+        Start-Sleep -Seconds 2
+    }
+    return $false
+}
+
+# 1. Wait for interface & check for Server 72 updates
+[void](Wait-NetworkReady 10)
+$synced = Sync-FromDeployShare
+if ($synced -and -not $Once) {
+    Write-Log "Initial sync updated scripts. Handing off to new copy..."
+}
+
+# 2. Resolve credentials from net-auth.env
 $envCandidates = @(
     (Join-Path $dataDir 'net-auth.env'),
     '\\192.168.0.72\LabDeploy\net-auth.env',
-    (Join-Path $PSScriptRoot 'net-auth.env')
+    (Join-Path $PSScriptRoot 'net-auth.env'),
+    (Join-Path $netAuthDir 'net-auth.env')
 )
 
 $cfg = @{}
@@ -93,22 +141,29 @@ if (-not $user -or -not $pass) {
     Exit 1
 }
 
-# Preferred engine: Node.js. Windows Schannel (PowerShell .NET / curl.exe) is closed by the portal's TLS
-# ("connection closed unexpectedly"); Node's OpenSSL connects fine. Falls back to curl.exe when node is absent.
+# Preferred engine: Node.js (OpenSSL TLS connects fine; Schannel/curl fails on FortiGate TLS)
 $nodeExe = (Get-Command 'node.exe' -ErrorAction SilentlyContinue).Source
 if (-not $nodeExe -and (Test-Path "$env:ProgramFiles\nodejs\node.exe")) { $nodeExe = "$env:ProgramFiles\nodejs\node.exe" }
 $jsScript = Join-Path $PSScriptRoot 'KeepAlive.js'
+if (-not (Test-Path $jsScript)) { $jsScript = Join-Path $netAuthDir 'KeepAlive.js' }
+
 if ($nodeExe -and (Test-Path $jsScript)) {
     Write-Log "Engine: node ($nodeExe)"
-    $env:NSRU_USER = $user
-    $env:NSRU_PASS = $pass
-    $nodeArgs = @($jsScript, '--portal', $portalUrl, '--interval', $IntervalSec, '--stop-hour', $StopHour, '--log', $logFile)
-    if ($Once) { $nodeArgs += '--once' }
-    & $nodeExe @nodeArgs
-    $code = $LASTEXITCODE
-    Remove-Item Env:\NSRU_USER, Env:\NSRU_PASS -ErrorAction SilentlyContinue
-    exit $code
+    while ($true) {
+        $env:NSRU_USER = $user
+        $env:NSRU_PASS = $pass
+        $nodeArgs = @($jsScript, '--portal', $portalUrl, '--interval', $IntervalSec, '--stop-hour', $StopHour, '--log', $logFile)
+        if ($Once) { $nodeArgs += '--once' }
+        & $nodeExe @nodeArgs
+        $code = $LASTEXITCODE
+        Remove-Item Env:\NSRU_USER, Env:\NSRU_PASS -ErrorAction SilentlyContinue
+        if ($Once -or $code -eq 1 -or ((Get-Date).Hour -eq $StopHour)) { exit $code }
+        # Node exited (likely updated from share or restart requested). Sync and restart in 3s.
+        [void](Sync-FromDeployShare)
+        Start-Sleep -Seconds 3
+    }
 }
+
 Write-Log "Engine: curl.exe (node.exe not found - install Node.js LTS if login fails with curl 35 / TLS errors)"
 
 $curl = (Get-Command 'curl.exe' -ErrorAction SilentlyContinue).Source
@@ -118,15 +173,24 @@ if (-not (Test-Path $curl)) {
     Exit 2
 }
 
+$script:activePortal = $portalUrl
+
 function Test-Internet {
     $status = & $curl -s -k -m 6 -w "%{http_code}" -o NUL "http://clients3.google.com/generate_204" 2>$null
     return ($status -eq '204')
 }
 
 function Get-RedirectUrl {
+    # 1. Follow HTTP redirect and get effective URL directly
+    $eff = & $curl -s -k -m 6 -L -o NUL -w "%{url_effective}" "http://clients3.google.com/generate_204" 2>$null
+    if ($eff -and $eff -notlike '*generate_204*' -and $eff -like 'http*') {
+        return $eff.Trim()
+    }
+    # 2. Check headers and HTML meta/window.location
     $head = & $curl -s -k -m 6 -i "http://clients3.google.com/generate_204" 2>$null
     if ($head -match 'Location:\s*([^\r\n]+)') { return $matches[1].Trim() }
-    if ($head -match 'window\.location\s*=\s*"([^"]+)"') { return $matches[1].Trim() }
+    if ($head -match 'window\.location\s*=\s*["'']([^"'']+)["'']') { return $matches[1].Trim() }
+    if ($head -match '(?i)<meta\s+http-equiv=["'']refresh["'']\s+content=["''][^"'']*url=([^"'']+)["'']') { return $matches[1].Trim() }
     return $null
 }
 
@@ -137,6 +201,12 @@ function Invoke-Login($redirTarget) {
 
     if ($redirTarget) {
         try {
+            # Handle relative redirect e.g. "/fgtauth?..."
+            if ($redirTarget -notlike 'http*') {
+                $base = $portalUrl.TrimEnd('/')
+                $rel = $redirTarget.TrimStart('/')
+                $redirTarget = "$base/$rel"
+            }
             $loginPage = $redirTarget
             $uri = [Uri]$redirTarget
             $targetPortal = "$($uri.Scheme)://$($uri.Authority)"
@@ -161,11 +231,27 @@ function Invoke-Login($redirTarget) {
     }
 
     $tok = if ($resp -match 'keepalive\?([0-9a-fA-F]+)') { $matches[1] } elseif ($resp -match 'logout\?([0-9a-fA-F]+)') { $matches[1] } else { $null }
-    # one line per attempt so keepalive.log shows WHY a login failed (curl 35 = TLS handshake, 28 = timeout, 6/7 = DNS/connect)
     Write-Log ("Login detail: redirect={0} page=curl{1} magic={2} post=curl{3} token={4}" -f
         $(if ($redirTarget) { $targetPortal } else { 'none' }), $pageExit, $(if ($magic) { 'found' } else { 'MISSING' }), $postExit,
         $(if ($tok) { 'found' } elseif ($resp -match 'type="password"') { 'none (login page again: wrong user/password?)' } else { 'none' }))
+    $script:activePortal = $targetPortal
     return $tok
+}
+
+function Sleep-Smarter([int]$Seconds) {
+    $end = (Get-Date).AddSeconds($Seconds)
+    $lastTick = Get-Date
+    while ((Get-Date) -lt $end) {
+        Start-Sleep -Seconds 3
+        $now = Get-Date
+        # Clock jump > 8s means machine was suspended (Sleep/Hibernate)
+        if (($now - $lastTick).TotalSeconds -gt 8) {
+            Write-Log "System resume from sleep detected (clock jumped $([int]($now - $lastTick).TotalSeconds)s)."
+            return $true
+        }
+        $lastTick = $now
+    }
+    return $false
 }
 
 Write-Log "KeepAlive started (Target: $portalUrl, Interval: ${IntervalSec}s)"
@@ -191,6 +277,8 @@ if ($Once) {
     if (Test-Internet) { exit 0 } else { exit 1 }
 }
 
+$lastShareSync = Get-Date
+
 # Daemon loop
 while ($true) {
     if ($StopHour -ge 0) {
@@ -198,33 +286,60 @@ while ($true) {
         if ($now.Hour -eq $StopHour) {
             Write-Log "Stop hour reached (${StopHour}:00). Exiting daemon."
             if ($token) {
-                & $curl -s -k -m 5 "$portalUrl/logout?$token" 2>$null | Out-Null
+                & $curl -s -k -m 5 "$script:activePortal/logout?$token" 2>$null | Out-Null
             }
             break
+        }
+    }
+
+    # Periodic check for Server 72 updates every 30 minutes
+    if (((Get-Date) - $lastShareSync).TotalMinutes -gt 30) {
+        $lastShareSync = Get-Date
+        if (Sync-FromDeployShare) {
+            Write-Log "Update detected from Server 72. Restarting daemon..."
+            exit 0
         }
     }
 
     $isUp = Test-Internet
     if ($isUp) {
         if ($token) {
-            $resp = & $curl -s -k -m 6 "$portalUrl/keepalive?$token" 2>$null
+            $resp = & $curl -s -k -m 6 "$script:activePortal/keepalive?$token" 2>$null
             if ($resp -match 'name="magic"' -and $resp -match 'type="password"') {
                 Write-Log "Session expired. Re-authenticating..."
                 $token = Invoke-Login $null
                 Write-Log "Re-login result: $(if ($token) { 'OK' } else { 'FAILED' })"
             }
         }
-        Start-Sleep -Seconds $IntervalSec
+        $woke = Sleep-Smarter $IntervalSec
+        if ($woke) {
+            if (-not (Test-Internet)) {
+                Write-Log "Internet dropped after wake. Re-authenticating immediately..."
+                $redir = Get-RedirectUrl
+                $token = Invoke-Login $redir
+            }
+        }
     } else {
         Write-Log "Connection dropped. Re-authenticating..."
         $redir = Get-RedirectUrl
         $token = Invoke-Login $redir
         if (Test-Internet) {
             Write-Log "Re-connected successfully."
-            Start-Sleep -Seconds $IntervalSec
+            $woke = Sleep-Smarter $IntervalSec
+            if ($woke) {
+                if (-not (Test-Internet)) {
+                    Write-Log "Internet dropped after wake. Re-authenticating immediately..."
+                    $redir = Get-RedirectUrl
+                    $token = Invoke-Login $redir
+                }
+            }
         } else {
             Write-Log "Re-connection attempt failed. Retrying in 10s..."
-            Start-Sleep -Seconds 10
+            if (Sync-FromDeployShare) {
+                Write-Log "Update detected from Server 72 while offline. Restarting..."
+                exit 0
+            }
+            [void](Sleep-Smarter 10)
         }
     }
 }
