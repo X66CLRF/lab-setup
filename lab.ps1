@@ -61,7 +61,9 @@ function Invoke-LabSetup {
             @{ Task = 'BrowserAutoStart';    Label = 'BrowserAutoStart (ไอคอน YouTube บน Desktop + เปิด Edge หน้า YouTube ทุกครั้งที่เข้า Windows - ห้องคาราโอเกะ)' },
             @{ Task = 'RevertBrowserAutoStart'; Label = 'RevertBrowserAutoStart (ลบไอคอน YouTube บน Desktop และตัวเปิดอัตโนมัติ)' },
             @{ Task = 'StopSignIn';          Label = 'Stop Sign-In (บล็อก Microsoft Account + ปิดป๊อปอัป Office + ปิด Browser Sync)' },
-            @{ Task = 'RevertStopSignIn';    Label = 'RevertStopSignIn (คืนสิทธิ์ให้ Sign-in บัญชีได้ตามปกติ)' }
+            @{ Task = 'RevertStopSignIn';    Label = 'RevertStopSignIn (คืนสิทธิ์ให้ Sign-in บัญชีได้ตามปกติ)' },
+            @{ Task = 'GraveSwitch';         Label = 'GraveSwitch (ตั้งปุ่มตัวหนอน ~ เป็นตัวเปลี่ยนภาษาทุกผู้ใช้)' },
+            @{ Task = 'RevertGraveSwitch';   Label = 'RevertGraveSwitch (คืนค่าปุ่มเปลี่ยนภาษาเป็น Alt+Shift)' }
         )
         'Automation' = @(
             @{ Task = 'AutoSleep';           Label = 'Auto Wake/Sleep (ตั้งเวลาเปิด-ปิดเครื่องอัตโนมัติ 08:20 / 16:40)' },
@@ -657,6 +659,24 @@ function Send-LabEvent($url, $campus, $eventType, $title, $detail, $performedBy)
         Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' -Name 'BrowserSignin' -ErrorAction SilentlyContinue
         Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' -Name 'SyncDisabled' -ErrorAction SilentlyContinue
         Log 'Stop Sign-In policies reverted: users can sign in normally.' 'Green'
+    }
+
+    # ============ GraveSwitch / RevertGraveSwitch (ปุ่มตัวหนอน ~ เปลี่ยนภาษาทุกผู้ใช้) ============
+    if ($tasks -contains 'GraveSwitch' -or $tasks -contains 'RevertGraveSwitch') {
+        $isRevert = $tasks -contains 'RevertGraveSwitch' -and $tasks -notcontains 'GraveSwitch'
+        $langKey  = if ($isRevert) { '1' } else { '4' }
+        $layKey   = if ($isRevert) { '2' } else { '3' }
+        Log $(if ($isRevert) { '== Revert GraveSwitch (Alt+Shift) ==' } else { '== GraveSwitch (~) ==' }) 'Cyan'
+        $hives = Get-UserHives
+        try {
+            foreach ($h in $hives) {
+                $tKey = "$($h.Key)\Keyboard Layout\Toggle"
+                Set-Reg $tKey 'Language Hotkey' $langKey 'String'
+                Set-Reg $tKey 'Hotkey'          $langKey 'String'
+                Set-Reg $tKey 'Layout Hotkey'   $layKey  'String'
+            }
+        } finally { Close-UserHives $hives }
+        Log $(if ($isRevert) { 'Keyboard language switch reverted to Alt+Shift (takes effect on next sign-in).' } else { 'Grave accent (~) set as language switch for all users (takes effect on next sign-in).' }) 'Green'
     }
 
     # ============ RevertBrowserSearch: remove search policies ============
