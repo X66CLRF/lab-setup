@@ -120,5 +120,15 @@
   "wingetPin": [
     "Microsoft.Office",
     "IBM.SPSSStatistics"
-  ]
+  ],
+  "staffBundle": {
+    "winget": [
+      "Microsoft.Office",
+      "Foxit.FoxitReader",
+      "FastStone.Viewer"
+    ],
+    "lineUrl": "https://desktop.line-scdn.net/win/new/LineInst.exe",
+    "lineStoreId": "XPFCC4CD725961",
+    "driversFolder": "drivers"
+  }
 }

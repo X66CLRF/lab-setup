@@ -28,6 +28,7 @@ function Invoke-LabSetup {
     # Menu groups: 5 clean organized categories
     $groups = [ordered]@{
         'Install Software (Office, SPSS, Share packages, Winget)'                       = @('Install', 'Winget')
+        'One-Click Staff Bundle (Microsoft 365, Foxit, LINE, FastStone, Printer/Scanner)' = @('StaffBundle')
         'Optimize & Clean (Cleanup, BrowserClean, RemoveApps, RemoveAI, Tune)'          = @('Optimize')
         'Diagnostics & Licenses (Network status, Windows/Office/SPSS KMS check & fix)'   = @('Diagnostics')
         'Lab Settings & Policies (Fonts, Certs, WinRAR theme, Wallpaper, Search, Stop Sign-In)' = @('Settings')
@@ -836,8 +837,8 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
             finally { [Runtime.InteropServices.Marshal]::ZeroFreeCoTaskMemUnicode($c.CredentialBlob) }
         } catch { return $false }
     }
-    # soft = try the share, fall back quietly (Fonts -> GitHub; KeepAlive/CrashWatcher -> local copy of net-auth.env / telemetry.token)
-    $fontTask = @($tasks | Where-Object { $_ -in 'Fonts', 'KeepAlive', 'CrashWatcher' })
+    # soft = try the share, fall back quietly (Fonts -> GitHub; KeepAlive/CrashWatcher -> local copy of net-auth.env / telemetry.token; StaffBundle -> optional share drivers)
+    $fontTask = @($tasks | Where-Object { $_ -in 'Fonts', 'KeepAlive', 'CrashWatcher', 'StaffBundle' })
     if ($strictShareTasks -or $fontTask) {
         # Fast socket check first (1.5s timeout) to prevent 45-second SMB freeze
         $tSock = New-Object Net.Sockets.TcpClient
@@ -1116,6 +1117,21 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
         }
     }
 
+    # Shared helper: install or upgrade one winget package cleanly
+    function Invoke-WingetApp([string]$id, [string]$source = 'winget', [switch]$NoScopeMachine) {
+        $listed = winget list --id $id -e --accept-source-agreements 2>$null | Select-String ([regex]::Escape($id))
+        $verb = if ($listed) { 'upgrade' } else { 'install' }
+        Log "[$id] $verb ($source)"
+        if ($dryRun) { return $true }
+        $wgArgs = @($verb, '--id', $id, '-e', '--source', $source, '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
+        if (-not $NoScopeMachine -and $source -eq 'winget') { $wgArgs += @('--scope', 'machine') }
+        & winget @wgArgs | Out-Null
+        $code = $LASTEXITCODE
+        # 0 ok; 0x8A15002B (-1978335189) = no applicable upgrade (already latest)
+        if ($code -eq 0 -or $code -eq -1978335189) { Log "[$id] OK" 'Green'; return $true }
+        Log "[$id] FAIL exit $('0x{0:X8}' -f $code)" 'Red'; $global:LabExitCode = 4; return $false
+    }
+
     # ============ Winget apps (latest from vendor via winget) ============
     if ($tasks -contains 'Winget') {
         Log '== Winget ==' 'Cyan'
@@ -1132,23 +1148,109 @@ public static extern bool CredWrite(ref CREDENTIAL cred, int flags);
                 }
             }
 
-            foreach ($id in $wingetSel) {
-                $listed = winget list --id $id -e --accept-source-agreements 2>$null | Select-String ([regex]::Escape($id))
-                $verb = if ($listed) { 'upgrade' } else { 'install' }
-                Log "[$id] $verb"
-                if ($dryRun) { continue }
-                winget $verb --id $id -e --silent --scope machine --accept-package-agreements --accept-source-agreements --disable-interactivity | Out-Null
-                $code = $LASTEXITCODE
-                # 0 ok; 0x8A15002B = no applicable upgrade (already latest)
-                if ($code -eq 0 -or $code -eq -1978335189) { Log "[$id] OK" 'Green' }
-                else { Log "[$id] FAIL exit $('0x{0:X8}' -f $code)" 'Red'; $global:LabExitCode = 4 }
-            }
+            foreach ($id in $wingetSel) { Invoke-WingetApp $id | Out-Null }
             Log "Upgrading all installed applications via Winget..." 'Cyan'
             if (-not $dryRun) {
                 winget upgrade --all --silent --accept-package-agreements --accept-source-agreements --disable-interactivity | Out-Null
                 Log "Winget upgrade --all completed" 'Green'
             }
             Set-WinRarLicense $share $LabScriptDir
+        }
+    }
+
+    # ============ StaffBundle (One-Click: 365, Foxit, LINE, FastStone, Printer/Scanner Drivers) ============
+    if ($tasks -contains 'StaffBundle') {
+        Log '== StaffBundle ==' 'Cyan'
+        $bundleWinget = if ($cfg.staffBundle -and $cfg.staffBundle.winget) { @($cfg.staffBundle.winget) } else { @('Microsoft.Office', 'Foxit.FoxitReader', 'FastStone.Viewer') }
+        $lineUrl      = if ($cfg.staffBundle -and $cfg.staffBundle.lineUrl) { [string]$cfg.staffBundle.lineUrl } else { 'https://desktop.line-scdn.net/win/new/LineInst.exe' }
+        $lineStoreId  = if ($cfg.staffBundle -and $cfg.staffBundle.lineStoreId) { [string]$cfg.staffBundle.lineStoreId } else { 'XPFCC4CD725961' }
+        $drvSub       = if ($cfg.staffBundle -and $cfg.staffBundle.driversFolder) { [string]$cfg.staffBundle.driversFolder } else { 'drivers' }
+
+        $proceedBundle = $true
+        if ($interactive) {
+            Write-Host "`n--- One-Click Staff Bundle ---" -ForegroundColor Cyan
+            Write-Host "  1. Microsoft 365 (Microsoft.Office)" -ForegroundColor White
+            Write-Host "  2. Foxit PDF Reader (Foxit.FoxitReader)" -ForegroundColor White
+            Write-Host "  3. LINE PC" -ForegroundColor White
+            Write-Host "  4. FastStone Image Viewer (FastStone.Viewer)" -ForegroundColor White
+            Write-Host "  5. Printer & Scanner Drivers (Share/Local + PnP/Windows Update)" -ForegroundColor White
+            Write-Host ""
+            $ansBundle = Read-Host 'Press [Enter] to install all, or [B] to cancel'
+            if ($ansBundle -eq 'b' -or $ansBundle -eq 'B') {
+                Log 'StaffBundle cancelled.' 'Yellow'
+                $proceedBundle = $false
+            }
+        }
+
+        if ($proceedBundle) {
+            $wg = Get-Command winget.exe -ErrorAction SilentlyContinue
+            if (-not $wg) {
+                Log 'FAIL: winget not found (install "App Installer" from Microsoft Store)' 'Red'
+                $global:LabExitCode = 4
+            } else {
+                foreach ($id in $bundleWinget) { Invoke-WingetApp $id | Out-Null }
+            }
+
+            # LINE PC: prefer official silent NSIS installer, fallback to msstore winget
+            Log '[LINE] installing'
+            $lineDone = $false
+            if ($dryRun) {
+                Log "  [dry] download $lineUrl -> LineInst.exe /S (fallback: winget $lineStoreId)"
+                $lineDone = $true
+            } else {
+                $lineExe = Join-Path $env:TEMP 'LineInst.exe'
+                try {
+                    Invoke-WebRequest -Uri $lineUrl -OutFile $lineExe -UseBasicParsing -ErrorAction Stop
+                    $p = Start-Process -FilePath $lineExe -ArgumentList '/S' -Wait -PassThru -ErrorAction Stop
+                    if ($p.ExitCode -eq 0) { Log '[LINE] OK (LineInst.exe)' 'Green'; $lineDone = $true }
+                    else { Log "[LINE] LineInst.exe exit $($p.ExitCode), trying msstore..." 'Yellow' }
+                } catch {
+                    Log "[LINE] direct download failed ($($_.Exception.Message)), trying msstore..." 'Yellow'
+                } finally {
+                    Remove-Item $lineExe -Force -ErrorAction SilentlyContinue
+                }
+                if (-not $lineDone -and $wg) {
+                    $lineDone = Invoke-WingetApp $lineStoreId -Source 'msstore' -NoScopeMachine
+                }
+                if (-not $lineDone) { Log '[LINE] FAIL' 'Red'; $global:LabExitCode = 4 }
+            }
+
+            # Printer & Scanner Drivers: share/local folder (.inf/.msi/.exe) + PnP scan + Windows Update scan
+            Log '[Drivers] Printer & Scanner drivers' 'Cyan'
+            $drvDirs = @()
+            if ($shareOk -and (Test-Path (Join-Path $share $drvSub))) { $drvDirs += (Join-Path $share $drvSub) }
+            if ($LabScriptDir -and (Test-Path (Join-Path $LabScriptDir $drvSub))) { $drvDirs += (Join-Path $LabScriptDir $drvSub) }
+            $drvDirs = @($drvDirs | Select-Object -Unique)
+
+            foreach ($dDir in $drvDirs) {
+                Log "  Driver folder: $dDir"
+                $infs = @(Get-ChildItem -Path $dDir -Filter '*.inf' -Recurse -ErrorAction SilentlyContinue)
+                if ($infs.Count -gt 0) {
+                    if ($dryRun) { Log "  [dry] pnputil /add-driver $dDir\*.inf /subdirs /install ($($infs.Count) inf)" }
+                    else {
+                        & pnputil.exe /add-driver (Join-Path $dDir '*.inf') /subdirs /install | Out-Null
+                        Log "  [Drivers] pnputil installed $($infs.Count) .inf package(s)" 'Green'
+                    }
+                }
+                foreach ($inst in @(Get-ChildItem -Path $dDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.msi', '.exe' })) {
+                    if ($dryRun) { Log "  [dry] run driver installer: $($inst.Name)"; continue }
+                    Log "  Running driver installer: $($inst.Name)"
+                    if ($inst.Extension -eq '.msi') {
+                        Start-Process msiexec.exe -ArgumentList "/i `"$($inst.FullName)`" /qn /norestart" -Wait -PassThru | Out-Null
+                    } else {
+                        Start-Process -FilePath $inst.FullName -Wait -PassThru | Out-Null
+                    }
+                }
+            }
+
+            if ($dryRun) {
+                Log '  [dry] pnputil /scan-devices + UsoClient StartScan'
+            } else {
+                & pnputil.exe /scan-devices | Out-Null
+                $uso = Join-Path $env:SystemRoot 'System32\UsoClient.exe'
+                if (Test-Path $uso) { Start-Process -FilePath $uso -ArgumentList 'StartScan' -WindowStyle Hidden -ErrorAction SilentlyContinue }
+                Log '[Drivers] PnP device scan + Windows Update driver scan triggered' 'Green'
+            }
         }
     }
 
